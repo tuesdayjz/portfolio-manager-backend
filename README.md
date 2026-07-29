@@ -22,6 +22,57 @@ export FLASK_APP=wsgi.py
 > `403 Forbidden`（`Server: AirTunes`）が返る。`.env` に
 > `FLASK_RUN_PORT=5001` を入れておけば `flask run` だけで済む。
 
+### Supabase 設定
+
+`.env` に Supabase の接続情報を設定する。
+
+```env
+SUPABASE_URL=https://gvtxkyimbroikdfjsacb.supabase.co
+SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+DEFAULT_BASE_CURRENCY=JPY
+```
+
+- `SUPABASE_ANON_KEY`: Supabase Dashboard の publishable / anon key。
+- `SUPABASE_SERVICE_ROLE_KEY`: Supabase Dashboard の secret / service role key。
+- `SUPABASE_SERVICE_ROLE_KEY` は backend 専用。frontend や Git には出さない。
+- `.env` は `.gitignore` 対象なので、ローカル環境だけに置く。
+
+### テスト
+
+設定だけをテストする場合:
+
+```bash
+.venv/bin/python -m unittest tests.test_config
+```
+
+Supabase への接続と、全テーブルへの read 権限を確認する場合:
+
+```bash
+.venv/bin/python -W ignore::DeprecationWarning -m unittest tests.test_supabase_connection
+```
+
+この接続テストは `.env` の Supabase keys を使い、以下のテーブルに対して
+`select("id").limit(1)` だけを実行する。データの作成・更新・削除は行わない。
+
+```text
+users
+portfolio
+asset_master
+currency
+asset_type
+transaction_type
+asset_data_history
+holdings
+transactions
+```
+
+すべてのテストを実行する場合:
+
+```bash
+.venv/bin/python -W ignore::DeprecationWarning -m unittest discover -s tests
+```
+
 ### ドキュメント
 
 | URL | 内容 |
@@ -107,4 +158,4 @@ app/
 ### 未実装
 
 DB（モデル・マイグレーション）、認証処理、評価額・配分・推移の算出ロジック、
-Yahoo Finance 連携、テスト。
+Yahoo Finance 連携。
