@@ -1,15 +1,45 @@
+*.db
+
+# Python bytecode and caches
 __pycache__/
 *.py[cod]
+*$py.class
+
+# Virtual environments
 .venv/
 venv/
+env/
+ENV/
 
-.env
-*.db
-*.sqlite3
+# Build and packaging output
+build/
+dist/
+*.egg-info/
+.eggs/
 
+# Test and coverage output
 .pytest_cache/
 .coverage
 htmlcov/
 
 .DS_Store
 .idea/
+# Type checker and linter caches
+.mypy_cache/
+.ruff_cache/
+.pyre/
+
+# Local environment settings
+.env
+.env.*
+!.env.example
+
+# Logs and local databases
+*.log
+*.sqlite
+*.sqlite3
+
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/
