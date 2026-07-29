@@ -7,8 +7,20 @@ OpenAPI (Swagger) 関連の設定もここに集約する。flask-smorest は
 import os
 
 
+def _env(name: str, default: str | None = None) -> str | None:
+    value = os.getenv(name)
+    return value.strip() if value and value.strip() else default
+
+
 class BaseConfig:
-    SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-me")
+    SECRET_KEY = _env("SECRET_KEY", "dev-secret-key-change-me")
+    SUPABASE_URL = _env(
+        "SUPABASE_URL",
+        "https://gvtxkyimbroikdfjsacb.supabase.co",
+    )
+    SUPABASE_ANON_KEY = _env("SUPABASE_ANON_KEY")
+    SUPABASE_SERVICE_ROLE_KEY = _env("SUPABASE_SERVICE_ROLE_KEY")
+    DEFAULT_BASE_CURRENCY = _env("DEFAULT_BASE_CURRENCY", "JPY")
 
     JSON_SORT_KEYS = False
     PROPAGATE_EXCEPTIONS = True
