@@ -3,28 +3,20 @@
 import enum
 
 
-class AssetType(enum.Enum):
-    STOCK = "STOCK"
-    ETF = "ETF"
-    MUTUAL_FUND = "MUTUAL_FUND"
-    BOND = "BOND"
-    CRYPTO = "CRYPTO"
-    CASH = "CASH"
-    OTHER = "OTHER"
-
-
 class TransactionType(enum.Enum):
     """取引種別。
 
-    種別ごとに ``quantity`` / ``price`` の意味が変わる。
-
-    - ``BUY``      : quantity=約定株数, price=単価
-    - ``SELL``     : quantity=約定株数, price=単価
-    - ``DIVIDEND`` : quantity=0,        price=配当総額（税引前）
-    - ``SPLIT``    : quantity=分割比率, price=0   (例: 1→2 の分割なら 2)
+    - ``buy``  : 買い付け。保有数量を増やし、平均取得単価を再計算する。
+    - ``sell`` : 売却。保有数量を減らす。保有数量を超える売却は 400。
     """
 
-    BUY = "BUY"
-    SELL = "SELL"
-    DIVIDEND = "DIVIDEND"
-    SPLIT = "SPLIT"
+    BUY = "buy"
+    SELL = "sell"
+
+
+class Interval(enum.Enum):
+    """推移グラフの粒度。Yahoo Finance の interval 表記に合わせる。"""
+
+    DAILY = "1d"
+    WEEKLY = "1wk"
+    MONTHLY = "1mo"

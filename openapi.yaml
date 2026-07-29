@@ -1,9 +1,4 @@
 components:
-  headers:
-    PAGINATION:
-      description: Pagination metadata
-      schema:
-        $ref: '#/components/schemas/PaginationMetadata'
   responses:
     DEFAULT_ERROR:
       content:
@@ -18,125 +13,57 @@ components:
             $ref: '#/components/schemas/Error'
       description: Unprocessable Content
   schemas:
-    Asset:
+    AllocationItem:
       additionalProperties: false
       properties:
-        asset_type:
-          enum:
-          - STOCK
-          - ETF
-          - MUTUAL_FUND
-          - BOND
-          - CRYPTO
-          - CASH
-          - OTHER
-          readOnly: true
-        created_at:
-          format: date-time
-          readOnly: true
-          type: string
-        currency:
-          example: JPY
-          readOnly: true
-          type: string
-        exchange:
-          example: TSE
-          nullable: true
-          readOnly: true
-          type: string
-        id:
-          readOnly: true
-          type: string
         name:
-          example: トヨタ自動車
-          readOnly: true
+          example: stock
           type: string
-        symbol:
-          example: 7203.T
-          readOnly: true
-          type: string
-        updated_at:
-          format: date-time
-          readOnly: true
-          type: string
+        value:
+          example: 4220000
+          minimum: 0.0
+          type: number
+        weight:
+          example: 0.72
+          maximum: 1.0
+          minimum: 0.0
+          type: number
+      required:
+      - name
+      - value
+      - weight
       type: object
-    AssetCreate:
+    AssetInfo:
       additionalProperties: false
       properties:
-        asset_type:
-          enum:
-          - STOCK
-          - ETF
-          - MUTUAL_FUND
-          - BOND
-          - CRYPTO
-          - CASH
-          - OTHER
+        asset_id:
+          description: Asset ID
+          example: 1
+          minimum: 1
+          type: integer
         currency:
-          default: JPY
-          pattern: ^[A-Z]{3}$
-          type: string
-        exchange:
-          default: null
-          example: TSE
-          maxLength: 50
-          nullable: true
+          description: 通貨
+          example: JPY
           type: string
         name:
-          example: トヨタ自動車
-          maxLength: 200
-          minLength: 1
+          description: Asset name
+          example: Toyota Motor Corp.
           type: string
         symbol:
-          description: ティッカー / 証券コード
+          description: Yahoo Finance symbol
           example: 7203.T
-          maxLength: 32
-          minLength: 1
+          type: string
+        type:
+          description: Asset type
+          example: stock
+          maxLength: 20
           type: string
       required:
-      - asset_type
+      - asset_id
+      - currency
       - name
       - symbol
-      type: object
-    AssetUpdate:
-      additionalProperties: false
-      properties:
-        asset_type:
-          enum:
-          - STOCK
-          - ETF
-          - MUTUAL_FUND
-          - BOND
-          - CRYPTO
-          - CASH
-          - OTHER
-        currency:
-          pattern: ^[A-Z]{3}$
-          type: string
-        exchange:
-          maxLength: 50
-          nullable: true
-          type: string
-        name:
-          maxLength: 200
-          minLength: 1
-          type: string
-      type: object
-    CurrencySummary:
-      additionalProperties: false
-      properties:
-        book_value:
-          type: number
-        currency:
-          type: string
-        dividend_income:
-          type: number
-        realized_pnl:
-          type: number
-        total_fee:
-          type: number
-        total_tax:
-          type: number
+      - type
       type: object
     Error:
       additionalProperties: false
@@ -158,60 +85,56 @@ components:
     Holding:
       additionalProperties: false
       properties:
-        asset:
-          $ref: '#/components/schemas/Asset'
-        average_cost:
-          description: 1 単位あたりの平均取得単価（手数料込み）
-          type: number
-        book_value:
-          description: 取得原価の合計 = quantity × average_cost
+        asset_id:
+          description: Asset ID
+          example: 1
+          minimum: 1
+          type: integer
+        average_purchase_price:
+          description: 平均取得単価
+          example: 1095.8
+          minimum: 0.0
           type: number
         currency:
+          description: 通貨
+          example: JPY
           type: string
-        dividend_income:
-          description: 受取配当の累計（税控除後）
+        current_price:
+          description: Yahoo Finance 由来の市場価格。Supabase holdings には保存しない。
+          example: 2980.5
+          minimum: 0.0
           type: number
-        first_transaction_at:
-          format: date-time
-          nullable: true
+        name:
+          description: Asset name
+          example: Toyota Motor Corp.
           type: string
-        last_transaction_at:
-          format: date-time
-          nullable: true
-          type: string
-        quantity:
-          description: 現在の保有数量
-          type: number
-        realized_pnl:
-          description: 売却による実現損益の累計（手数料・税控除後）
-          type: number
-        total_fee:
-          description: 支払手数料の累計
-          type: number
-        total_tax:
-          description: 支払税額の累計
-          type: number
-        transaction_count:
+        portfolio_id:
+          example: 1
+          minimum: 1
           type: integer
-      type: object
-    HoldingsResponse:
-      additionalProperties: false
-      properties:
-        as_of:
-          description: この時点までの取引を集計した結果であることを示す
-          format: date-time
+        quantity:
+          description: Current holding quantity
+          example: 8.5
+          minimum: 0.0
+          type: number
+        symbol:
+          description: Yahoo Finance symbol
+          example: 7203.T
           type: string
-        base_currency:
-          type: string
-        holdings:
-          items:
-            $ref: '#/components/schemas/Holding'
-          type: array
-        summary:
-          description: 通貨ごとの集計。異なる通貨は合算しない。
-          items:
-            $ref: '#/components/schemas/CurrencySummary'
-          type: array
+        user_id:
+          example: 101
+          minimum: 1
+          type: integer
+      required:
+      - asset_id
+      - average_purchase_price
+      - currency
+      - current_price
+      - name
+      - portfolio_id
+      - quantity
+      - symbol
+      - user_id
       type: object
     PaginationMetadata:
       additionalProperties: false
@@ -231,309 +154,546 @@ components:
         total_pages:
           type: integer
       type: object
+    PerformanceGraph:
+      additionalProperties: false
+      properties:
+        currency:
+          example: JPY
+          type: string
+        interval:
+          enum:
+          - 1d
+          - 1wk
+          - 1mo
+          example: 1d
+        points:
+          items:
+            $ref: '#/components/schemas/PerformanceGraphPoint'
+          type: array
+        portfolio_id:
+          example: 1
+          minimum: 1
+          type: integer
+        user_id:
+          example: 101
+          minimum: 1
+          type: integer
+      required:
+      - currency
+      - interval
+      - points
+      - portfolio_id
+      - user_id
+      type: object
+    PerformanceGraphPoint:
+      additionalProperties: false
+      properties:
+        date:
+          example: '2026-07-28'
+          format: date
+          type: string
+        total_market_value:
+          example: 4220000
+          minimum: 0.0
+          type: number
+        total_purchase_value:
+          example: 3901250
+          minimum: 0.0
+          type: number
+        unrealized_gain_loss:
+          example: 318750
+          type: number
+      required:
+      - date
+      - total_market_value
+      - total_purchase_value
+      - unrealized_gain_loss
+      type: object
+    Portfolio:
+      additionalProperties: false
+      properties:
+        cash_balance:
+          default: 0.0
+          description: Mock-only cash value; current Supabase schema has no cash balance
+            column
+          example: 1000000
+          minimum: 0.0
+          type: number
+        currency:
+          example: JPY
+          type: string
+        name:
+          example: Main Portfolio
+          type: string
+        portfolio_id:
+          example: 1
+          minimum: 1
+          type: integer
+        user_id:
+          example: 101
+          minimum: 1
+          type: integer
+      required:
+      - currency
+      - name
+      - portfolio_id
+      - user_id
+      type: object
+    PortfolioAllocation:
+      additionalProperties: false
+      properties:
+        by_asset:
+          items:
+            $ref: '#/components/schemas/AllocationItem'
+          type: array
+        by_asset_type:
+          items:
+            $ref: '#/components/schemas/AllocationItem'
+          type: array
+        by_currency:
+          items:
+            $ref: '#/components/schemas/AllocationItem'
+          type: array
+      required:
+      - by_asset
+      - by_asset_type
+      - by_currency
+      type: object
+    PortfolioCreate:
+      additionalProperties: false
+      properties:
+        cash_balance:
+          default: 0.0
+          description: Mock-only cash value; current Supabase schema has no cash balance
+            column
+          example: 1000000
+          minimum: 0.0
+          type: number
+        currency:
+          example: JPY
+          type: string
+        name:
+          example: Main Portfolio
+          type: string
+        user_id:
+          example: 101
+          minimum: 1
+          type: integer
+      required:
+      - currency
+      - name
+      - user_id
+      type: object
+    PortfolioSummary:
+      additionalProperties: false
+      properties:
+        cash_balance:
+          description: Mock-only cash value; current Supabase schema has no cash balance
+            column
+          example: 1250000
+          minimum: 0.0
+          type: number
+        currency:
+          example: JPY
+          type: string
+        portfolio_id:
+          example: 1
+          type: integer
+        total_asset_value:
+          example: 5470000
+          minimum: 0.0
+          type: number
+        total_market_value:
+          example: 4220000
+          minimum: 0.0
+          type: number
+        total_purchase_value:
+          example: 3901250
+          minimum: 0.0
+          type: number
+        unrealized_gain_loss:
+          example: 318750
+          type: number
+        user_id:
+          example: 101
+          type: integer
+      required:
+      - cash_balance
+      - currency
+      - portfolio_id
+      - total_asset_value
+      - total_market_value
+      - total_purchase_value
+      - unrealized_gain_loss
+      - user_id
+      type: object
+    PriceHistoryItem:
+      additionalProperties: false
+      properties:
+        close:
+          example: 2980.5
+          minimum: 0.0
+          type: number
+        date:
+          example: '2026-07-28'
+          format: date
+          type: string
+        high:
+          example: 3000.0
+          minimum: 0.0
+          type: number
+        low:
+          example: 2920.0
+          minimum: 0.0
+          type: number
+        open:
+          example: 2950.0
+          minimum: 0.0
+          type: number
+        volume:
+          example: 1200000
+          minimum: 0
+          type: integer
+      required:
+      - close
+      - date
+      - high
+      - low
+      - open
+      - volume
+      type: object
     Transaction:
       additionalProperties: false
       properties:
-        asset:
-          allOf:
-          - $ref: '#/components/schemas/Asset'
-          readOnly: true
         asset_id:
-          readOnly: true
-          type: string
-        created_at:
+          example: 1
+          minimum: 1
+          type: integer
+        date:
+          example: '2026-05-26T18:00:00'
           format: date-time
-          readOnly: true
           type: string
-        currency:
-          readOnly: true
-          type: string
-        executed_at:
-          format: date-time
-          readOnly: true
-          type: string
-        fee:
-          readOnly: true
+        fees:
+          default: 0.0
+          example: 0.0
+          minimum: 0.0
           type: number
-        gross_amount:
-          description: 手数料・税を除いた約定金額
-          readOnly: true
-          type: number
-        id:
-          readOnly: true
-          type: string
-        net_amount:
-          description: キャッシュフロー。プラスが入金、マイナスが出金。
-          readOnly: true
-          type: number
-        note:
-          nullable: true
-          readOnly: true
-          type: string
+        portfolio_id:
+          example: 1
+          minimum: 1
+          type: integer
         price:
-          readOnly: true
+          example: 2980.5
+          minimum: 0.0
           type: number
         quantity:
-          readOnly: true
+          example: 5.4
+          exclusiveMinimum: true
+          minimum: 0.0
           type: number
-        tax:
-          readOnly: true
-          type: number
+        transaction_id:
+          example: 1
+          minimum: 1
+          type: integer
         transaction_type:
           enum:
-          - BUY
-          - SELL
-          - DIVIDEND
-          - SPLIT
-          readOnly: true
-        updated_at:
-          format: date-time
-          readOnly: true
-          type: string
-      type: object
-    TransactionCreate:
-      description: '種別ごとの意味:
-
-        - `BUY` / `SELL`: quantity=約定数量, price=単価
-
-        - `DIVIDEND`: quantity は 0、price に配当総額（税引前）を入れる
-
-        - `SPLIT`: quantity に分割比率（1→2 の分割なら 2）、price は 0'
-      properties:
-        asset_id:
-          type: string
-        executed_at:
-          example: '2026-04-01T00:30:00Z'
-          format: date-time
-          type: string
-        fee:
-          default: '0.000000'
-          minimum: '0.000000'
-          type: number
-        note:
-          maxLength: 1000
-          nullable: true
-          type: string
-        price:
-          default: '0.000000'
-          example: '2850.5'
-          minimum: '0.000000'
-          type: number
-        quantity:
-          default: '0.0000000000'
-          example: '100'
-          minimum: '0.0000000000'
-          type: number
-        tax:
-          default: '0.000000'
-          minimum: '0.000000'
-          type: number
-        transaction_type:
-          description: '種別ごとの意味:
-
-            - `BUY` / `SELL`: quantity=約定数量, price=単価
-
-            - `DIVIDEND`: quantity は 0、price に配当総額（税引前）を入れる
-
-            - `SPLIT`: quantity に分割比率（1→2 の分割なら 2）、price は 0'
-          enum:
-          - BUY
-          - SELL
-          - DIVIDEND
-          - SPLIT
+          - buy
+          - sell
+          example: buy
+        user_id:
+          example: 101
+          minimum: 1
+          type: integer
       required:
       - asset_id
-      - executed_at
+      - date
+      - portfolio_id
+      - price
+      - quantity
+      - transaction_id
       - transaction_type
+      - user_id
       type: object
-    TransactionUpdate:
+    TransactionBatchCreate:
       additionalProperties: false
       properties:
-        executed_at:
-          example: '2026-04-01T00:30:00Z'
+        transactions:
+          items:
+            $ref: '#/components/schemas/TransactionItem'
+          minItems: 1
+          type: array
+        user_id:
+          example: 101
+          minimum: 1
+          type: integer
+      required:
+      - transactions
+      - user_id
+      type: object
+    TransactionCreate:
+      additionalProperties: false
+      properties:
+        asset_id:
+          example: 1
+          minimum: 1
+          type: integer
+        date:
+          example: '2026-05-26T18:00:00'
           format: date-time
           type: string
-        fee:
-          example: '550'
-          minimum: '0.000000'
+        fees:
+          default: 0.0
+          example: 0.0
+          minimum: 0.0
           type: number
-        note:
-          maxLength: 1000
-          nullable: true
-          type: string
         price:
-          example: '2850.5'
-          minimum: '0.000000'
+          example: 2980.5
+          minimum: 0.0
           type: number
         quantity:
-          example: '100'
-          minimum: '0.0000000000'
-          type: number
-        tax:
-          example: '0'
-          minimum: '0.000000'
+          example: 5.4
+          exclusiveMinimum: true
+          minimum: 0.0
           type: number
         transaction_type:
           enum:
-          - BUY
-          - SELL
-          - DIVIDEND
-          - SPLIT
-      type: object
-    User:
-      additionalProperties: false
-      properties:
-        base_currency:
-          description: 集計の基準通貨
-          example: JPY
-          readOnly: true
-          type: string
-        created_at:
-          format: date-time
-          readOnly: true
-          type: string
-        display_name:
-          readOnly: true
-          type: string
-        email:
-          format: email
-          readOnly: true
-          type: string
-        id:
-          readOnly: true
-          type: string
-        updated_at:
-          format: date-time
-          readOnly: true
-          type: string
-      type: object
-    UserRegister:
-      additionalProperties: false
-      properties:
-        base_currency:
-          default: JPY
-          example: JPY
-          pattern: ^[A-Z]{3}$
-          type: string
-        display_name:
-          example: 山田 太郎
-          maxLength: 100
-          minLength: 1
-          type: string
-        email:
-          example: investor@example.com
-          format: email
-          type: string
+          - buy
+          - sell
+          example: buy
+        user_id:
+          example: 101
+          minimum: 1
+          type: integer
       required:
-      - display_name
-      - email
+      - asset_id
+      - date
+      - price
+      - quantity
+      - transaction_type
+      - user_id
       type: object
-    UserRegistered:
+    TransactionItem:
       additionalProperties: false
       properties:
-        api_key:
-          description: 以降のリクエストで X-API-Key ヘッダーに指定する。再表示はできないため必ず保管すること。
-          example: pmk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        asset_id:
+          example: 1
+          minimum: 1
+          type: integer
+        date:
+          example: '2026-05-26T18:00:00'
+          format: date-time
           type: string
-        user:
-          $ref: '#/components/schemas/User'
+        fees:
+          default: 0.0
+          example: 0.0
+          minimum: 0.0
+          type: number
+        price:
+          example: 2980.5
+          minimum: 0.0
+          type: number
+        quantity:
+          example: 5.4
+          exclusiveMinimum: true
+          minimum: 0.0
+          type: number
+        transaction_type:
+          enum:
+          - buy
+          - sell
+          example: buy
+      required:
+      - asset_id
+      - date
+      - price
+      - quantity
+      - transaction_type
       type: object
-    UserUpdate:
-      additionalProperties: false
-      properties:
-        base_currency:
-          pattern: ^[A-Z]{3}$
-          type: string
-        display_name:
-          maxLength: 100
-          minLength: 1
-          type: string
-      type: object
-  securitySchemes:
-    ApiKeyAuth:
-      description: ユーザー登録時に払い出される API キー。
-      in: header
-      name: X-API-Key
-      type: apiKey
 info:
   contact:
     name: Portfolio Manager Team
   description: '個人向けポートフォリオ管理 API。
 
 
-    - `assets` … 銘柄マスタ（ユーザーごとに登録）
+    - `portfolio` … ポートフォリオの作成、サマリー、保有残高、資産配分、推移
 
-    - `transactions` … 売買・配当などの取引履歴
+    - `assets` … 資産マスタと Yahoo Finance の市場価格
 
-    - `holdings` … 取引履歴から算出した保有状況（移動平均法）
-
-    - `user` … 認証中ユーザーのプロフィール
+    - `transactions` … 売買の取引履歴
 
 
-    認証は `X-API-Key` ヘッダーで行う。`POST /api/v1/user/register` のレスポンスで一度だけ API キーが返る。'
+    実際の証券発注は行わない。売買は取引履歴の記録と保有残高の更新だけを行う。
+
+
+    private なデータは `user_id` で絞り込む。モック／開発中は private な GET API に `user_id` をクエリパラメータで渡す。本番ではログイン情報から
+    `user_id` を解決する想定。公開の資産・市場データに `user_id` は不要。'
   title: Portfolio Manager API
   version: 1.0.0
 openapi: 3.0.3
 paths:
-  /api/v1/assets/:
+  /api/v1/assets/{asset_id}/:
     get:
+      description: '公開データなので `user_id` は不要。保有数量や取得価額は
+
+        `GET /portfolios/{portfolio_id}/holdings` で取得する。'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetInfo'
+          description: OK
+        '404':
+          description: The specified asset does not exist
+        default:
+          $ref: '#/components/responses/DEFAULT_ERROR'
+      summary: 資産マスタ情報を取得する。
+      tags:
+      - assets
+    parameters:
+    - description: Asset ID
+      in: path
+      name: asset_id
+      required: true
+      schema:
+        example: 1
+        minimum: 1
+        type: integer
+  /api/v1/assets/{asset_id}/price-history:
+    get:
+      description: '`asset_master.symbol` を使って Yahoo Finance の履歴を取得するか、
+
+        `asset_data_history` のキャッシュ済み終値を読む想定。'
       parameters:
-      - description: 資産種別で絞り込む
-        in: query
-        name: asset_type
-        required: false
-        schema:
-          enum:
-          - STOCK
-          - ETF
-          - MUTUAL_FUND
-          - BOND
-          - CRYPTO
-          - CASH
-          - OTHER
       - in: query
-        name: currency
+        name: start_date
         required: false
         schema:
-          pattern: ^[A-Z]{3}$
-          type: string
-      - description: symbol / name の部分一致検索
-        in: query
-        name: q
-        required: false
-        schema:
-          example: トヨタ
-          type: string
-      - description: 並び順。先頭に `-` を付けると降順。
-        in: query
-        name: sort
-        required: false
-        schema:
-          default: symbol
-          enum:
-          - -asset_type
-          - -created_at
-          - -name
-          - -symbol
-          - asset_type
-          - created_at
-          - name
-          - symbol
-          example: -created_at
+          example: '2026-01-01'
+          format: date
           type: string
       - in: query
-        name: page
+        name: end_date
         required: false
         schema:
-          default: 1
+          example: '2026-07-28'
+          format: date
+          type: string
+      - in: query
+        name: interval
+        required: false
+        schema:
+          default: 1d
+          example: 1d
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/PriceHistoryItem'
+                type: array
+          description: OK
+        '404':
+          description: The specified asset does not exist
+        '422':
+          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
+        default:
+          $ref: '#/components/responses/DEFAULT_ERROR'
+      summary: 過去の市場価格を取得する。
+      tags:
+      - assets
+    parameters:
+    - description: Asset ID
+      in: path
+      name: asset_id
+      required: true
+      schema:
+        example: 1
+        minimum: 1
+        type: integer
+  /api/v1/portfolios/:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PortfolioCreate'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Portfolio'
+          description: Created
+        '422':
+          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
+        default:
+          $ref: '#/components/responses/DEFAULT_ERROR'
+      summary: ポートフォリオを作成する。
+      tags:
+      - portfolio
+  /api/v1/portfolios/{portfolio_id}/allocation:
+    get:
+      description: '資産種別・通貨・銘柄それぞれの内訳を返す。評価額計算の市場価格は
+
+        Yahoo Finance から取得する想定。'
+      parameters:
+      - description: User ID
+        in: query
+        name: user_id
+        required: true
+        schema:
+          example: 101
           minimum: 1
           type: integer
-      - in: query
-        name: page_size
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortfolioAllocation'
+          description: OK
+        '404':
+          description: The specified portfolio does not exist
+        '422':
+          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
+        default:
+          $ref: '#/components/responses/DEFAULT_ERROR'
+      summary: 資産配分を取得する。
+      tags:
+      - portfolio
+    parameters:
+    - description: Portfolio ID
+      in: path
+      name: portfolio_id
+      required: true
+      schema:
+        example: 1
+        minimum: 1
+        type: integer
+  /api/v1/portfolios/{portfolio_id}/holdings:
+    get:
+      description: '1 つのポートフォリオに含まれる複数の資産を返す。`current_price` は
+
+        Yahoo Finance 由来の市場価格で、Supabase holdings には保存しない。'
+      parameters:
+      - description: User ID
+        in: query
+        name: user_id
+        required: true
+        schema:
+          example: 101
+          minimum: 1
+          type: integer
+      - description: 特定銘柄の保有残高だけを返す
+        in: query
+        name: asset_id
         required: false
         schema:
-          default: 10
-          maximum: 100
+          example: 1
           minimum: 1
           type: integer
       responses:
@@ -542,271 +702,156 @@ paths:
             application/json:
               schema:
                 items:
-                  $ref: '#/components/schemas/Asset'
+                  $ref: '#/components/schemas/Holding'
                 type: array
           description: OK
-          headers:
-            X-Pagination:
-              $ref: '#/components/headers/PAGINATION'
-        '401':
-          description: 認証エラー
+        '404':
+          description: The specified portfolio does not exist
         '422':
           $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
-      summary: 登録済みの銘柄一覧を取得する。
+      summary: 保有残高一覧を取得する。
       tags:
-      - assets
-    post:
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AssetCreate'
-        required: true
-      responses:
-        '201':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Asset'
-          description: Created
-        '401':
-          description: 認証エラー
-        '409':
-          description: 同じ symbol が登録済み
-        '422':
-          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
-        default:
-          $ref: '#/components/responses/DEFAULT_ERROR'
-      summary: 銘柄を新規登録する。`symbol` はユーザー内で一意。
-      tags:
-      - assets
-  /api/v1/assets/{asset_id}:
-    delete:
-      responses:
-        '204':
-          description: No Content
-        '401':
-          description: 認証エラー
-        '404':
-          description: 銘柄が見つからない
-        '409':
-          description: 取引が紐づいているため削除できない
-        default:
-          $ref: '#/components/responses/DEFAULT_ERROR'
-      summary: 銘柄を削除する。取引が 1 件でも紐づいている場合は削除できない。
-      tags:
-      - assets
-    get:
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Asset'
-          description: OK
-        '401':
-          description: 認証エラー
-        '404':
-          description: 銘柄が見つからない
-        default:
-          $ref: '#/components/responses/DEFAULT_ERROR'
-      summary: 銘柄を 1 件取得する。
-      tags:
-      - assets
+      - portfolio
     parameters:
-    - in: path
-      name: asset_id
+    - description: Portfolio ID
+      in: path
+      name: portfolio_id
       required: true
       schema:
-        minLength: 1
-        type: string
-    patch:
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AssetUpdate'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Asset'
-          description: OK
-        '401':
-          description: 認証エラー
-        '404':
-          description: 銘柄が見つからない
-        '422':
-          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
-        default:
-          $ref: '#/components/responses/DEFAULT_ERROR'
-      summary: 銘柄を部分更新する。
-      tags:
-      - assets
-  /api/v1/holdings/:
+        example: 1
+        minimum: 1
+        type: integer
+  /api/v1/portfolios/{portfolio_id}/performance:
     get:
-      description: '取引を時系列に再生して数量・平均取得単価・実現損益・受取配当を求める。
+      description: '取引履歴から日付ごとの保有残高を復元し、`asset_data_history` または
 
-        `summary` は通貨ごとの合計で、為替レートを持たないため通貨横断の合算はしない。'
+        Yahoo Finance の価格データで評価額と含み損益を計算する想定。'
       parameters:
-      - description: 指定日終了時点の保有状況を算出する（省略時は現在）
+      - description: User ID
         in: query
-        name: as_of
+        name: user_id
+        required: true
+        schema:
+          example: 101
+          minimum: 1
+          type: integer
+      - in: query
+        name: start_date
         required: false
         schema:
-          example: '2026-06-30'
+          example: '2026-07-26'
           format: date
           type: string
       - in: query
-        name: asset_type
+        name: end_date
         required: false
         schema:
-          enum:
-          - STOCK
-          - ETF
-          - MUTUAL_FUND
-          - BOND
-          - CRYPTO
-          - CASH
-          - OTHER
-      - in: query
-        name: currency
-        required: false
-        schema:
-          pattern: ^[A-Z]{3}$
+          example: '2026-07-28'
+          format: date
           type: string
-      - description: 保有数量が 0 になった銘柄も含めるか
+      - description: グラフの粒度
         in: query
-        name: include_closed
+        name: interval
         required: false
         schema:
-          default: false
-          type: boolean
-      - description: 並び順。先頭に `-` を付けると降順。
-        in: query
-        name: sort
-        required: false
-        schema:
-          default: -book_value
+          default: 1d
           enum:
-          - -book_value
-          - -quantity
-          - -realized_pnl
-          - -symbol
-          - book_value
-          - quantity
-          - realized_pnl
-          - symbol
-          type: string
+          - 1d
+          - 1wk
+          - 1mo
+          example: 1d
       responses:
         '200':
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/HoldingsResponse'
+                $ref: '#/components/schemas/PerformanceGraph'
           description: OK
-        '401':
-          description: 認証エラー
-        '422':
-          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
-        default:
-          $ref: '#/components/responses/DEFAULT_ERROR'
-      summary: 現在（または指定日時点）の保有状況を算出して返す。
-      tags:
-      - holdings
-  /api/v1/holdings/{asset_id}:
-    get:
-      parameters:
-      - description: 指定日終了時点の保有状況を算出する（省略時は現在）
-        in: query
-        name: as_of
-        required: false
-        schema:
-          example: '2026-06-30'
-          format: date
-          type: string
-      - in: query
-        name: asset_type
-        required: false
-        schema:
-          enum:
-          - STOCK
-          - ETF
-          - MUTUAL_FUND
-          - BOND
-          - CRYPTO
-          - CASH
-          - OTHER
-      - in: query
-        name: currency
-        required: false
-        schema:
-          pattern: ^[A-Z]{3}$
-          type: string
-      - description: 保有数量が 0 になった銘柄も含めるか
-        in: query
-        name: include_closed
-        required: false
-        schema:
-          default: false
-          type: boolean
-      - description: 並び順。先頭に `-` を付けると降順。
-        in: query
-        name: sort
-        required: false
-        schema:
-          default: -book_value
-          enum:
-          - -book_value
-          - -quantity
-          - -realized_pnl
-          - -symbol
-          - book_value
-          - quantity
-          - realized_pnl
-          - symbol
-          type: string
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Holding'
-          description: OK
-        '401':
-          description: 認証エラー
+        '400':
+          description: start_date must be before or equal to end_date
         '404':
-          description: 銘柄が見つからない / 取引が 1 件もない
+          description: The specified portfolio does not exist
         '422':
           $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
-      summary: 特定銘柄の保有状況を取得する。
+      summary: ポートフォリオ推移グラフを取得する。
       tags:
-      - holdings
+      - portfolio
     parameters:
-    - in: path
-      name: asset_id
+    - description: Portfolio ID
+      in: path
+      name: portfolio_id
       required: true
       schema:
-        minLength: 1
-        type: string
-  /api/v1/transactions/:
+        example: 1
+        minimum: 1
+        type: integer
+  /api/v1/portfolios/{portfolio_id}/summary:
+    get:
+      description: '取得価額・評価額・総資産・含み損益を返す。評価額の市場価格は
+
+        Yahoo Finance または `asset_data_history` から取得する想定で、
+
+        `holdings` には保存しない。'
+      parameters:
+      - description: User ID
+        in: query
+        name: user_id
+        required: true
+        schema:
+          example: 101
+          minimum: 1
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortfolioSummary'
+          description: OK
+        '404':
+          description: The specified portfolio does not exist
+        '422':
+          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
+        default:
+          $ref: '#/components/responses/DEFAULT_ERROR'
+      summary: ポートフォリオサマリーを取得する。
+      tags:
+      - portfolio
+    parameters:
+    - description: Portfolio ID
+      in: path
+      name: portfolio_id
+      required: true
+      schema:
+        example: 1
+        minimum: 1
+        type: integer
+  /api/v1/portfolios/{portfolio_id}/transactions:
     get:
       description: '`asset_id` / `start_date` / `end_date` で絞り込める。
 
-        日付は UTC 基準で、どちらも指定日を含む（inclusive）。'
+        日付はどちらも指定日を含む（inclusive）。'
       parameters:
+      - description: User ID
+        in: query
+        name: user_id
+        required: true
+        schema:
+          example: 101
+          minimum: 1
+          type: integer
       - description: 特定銘柄の取引だけを返す
         in: query
         name: asset_id
         required: false
         schema:
-          type: string
+          example: 1
+          minimum: 1
+          type: integer
       - description: この日付以降（当日を含む）の取引を返す
         in: query
         name: start_date
@@ -823,42 +868,6 @@ paths:
           example: '2026-12-31'
           format: date
           type: string
-      - in: query
-        name: transaction_type
-        required: false
-        schema:
-          enum:
-          - BUY
-          - SELL
-          - DIVIDEND
-          - SPLIT
-      - description: 並び順。先頭に `-` を付けると降順。
-        in: query
-        name: sort
-        required: false
-        schema:
-          default: -executed_at
-          enum:
-          - -created_at
-          - -executed_at
-          - created_at
-          - executed_at
-          type: string
-      - in: query
-        name: page
-        required: false
-        schema:
-          default: 1
-          minimum: 1
-          type: integer
-      - in: query
-        name: page_size
-        required: false
-        schema:
-          default: 10
-          maximum: 100
-          minimum: 1
-          type: integer
       responses:
         '200':
           content:
@@ -868,19 +877,28 @@ paths:
                   $ref: '#/components/schemas/Transaction'
                 type: array
           description: OK
-          headers:
-            X-Pagination:
-              $ref: '#/components/headers/PAGINATION'
-        '401':
-          description: 認証エラー
+        '404':
+          description: The specified portfolio does not exist
         '422':
           $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
-      summary: 取引履歴を検索する。
+      summary: 取引履歴を取得する。
       tags:
       - transactions
+    parameters:
+    - description: Portfolio ID
+      in: path
+      name: portfolio_id
+      required: true
+      schema:
+        example: 1
+        minimum: 1
+        type: integer
     post:
+      description: '`buy` は保有数量を増やして平均取得単価を再計算し、`sell` は保有数量を
+
+        減らす。保有数量を超える売却は 400。'
       requestBody:
         content:
           application/json:
@@ -894,181 +912,64 @@ paths:
               schema:
                 $ref: '#/components/schemas/Transaction'
           description: Created
-        '401':
-          description: 認証エラー
+        '400':
+          description: Cannot sell more than current holding
+        '404':
+          description: The specified portfolio does not exist
         '422':
-          description: バリデーションエラー / 銘柄が存在しない
+          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
-      summary: 取引を登録する。通貨は対象銘柄の設定を引き継ぐ。
+      summary: 取引を登録し、保有残高（holdings）を更新する。
       tags:
       - transactions
-  /api/v1/transactions/{transaction_id}:
-    delete:
-      responses:
-        '204':
-          description: No Content
-        '401':
-          description: 認証エラー
-        '404':
-          description: 取引が見つからない
-        default:
-          $ref: '#/components/responses/DEFAULT_ERROR'
-      summary: 取引を削除する。
-      tags:
-      - transactions
-    get:
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Transaction'
-          description: OK
-        '401':
-          description: 認証エラー
-        '404':
-          description: 取引が見つからない
-        default:
-          $ref: '#/components/responses/DEFAULT_ERROR'
-      summary: 取引を 1 件取得する。
-      tags:
-      - transactions
+  /api/v1/portfolios/{portfolio_id}/transactions/batch:
     parameters:
-    - in: path
-      name: transaction_id
+    - description: Portfolio ID
+      in: path
+      name: portfolio_id
       required: true
       schema:
-        minLength: 1
-        type: string
-    patch:
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/TransactionUpdate'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Transaction'
-          description: OK
-        '401':
-          description: 認証エラー
-        '404':
-          description: 取引が見つからない
-        '422':
-          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
-        default:
-          $ref: '#/components/responses/DEFAULT_ERROR'
-      summary: 取引を部分更新する。銘柄の変更はできない。
-      tags:
-      - transactions
-  /api/v1/user/:
-    delete:
-      responses:
-        '204':
-          description: No Content
-        '401':
-          description: 認証エラー
-        default:
-          $ref: '#/components/responses/DEFAULT_ERROR'
-      summary: 認証中ユーザーを削除する。銘柄・取引もまとめて削除される。
-      tags:
-      - user
-    get:
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/User'
-          description: OK
-        '401':
-          description: 認証エラー
-        default:
-          $ref: '#/components/responses/DEFAULT_ERROR'
-      summary: 認証中ユーザーのプロフィールを取得する。
-      tags:
-      - user
-    patch:
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UserUpdate'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/User'
-          description: OK
-        '401':
-          description: 認証エラー
-        '422':
-          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
-        default:
-          $ref: '#/components/responses/DEFAULT_ERROR'
-      summary: 認証中ユーザーのプロフィールを部分更新する。
-      tags:
-      - user
-  /api/v1/user/api-key/rotate:
+        example: 1
+        minimum: 1
+        type: integer
     post:
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserRegistered'
-          description: OK
-        '401':
-          description: 認証エラー
-        default:
-          $ref: '#/components/responses/DEFAULT_ERROR'
-      summary: API キーを再発行する。古いキーは即座に無効になる。
-      tags:
-      - user
-  /api/v1/user/register:
-    post:
-      description: API キーが平文で返るのはこのレスポンスだけ。以降は取得できない。
+      description: 'ネットワーク通信回数を減らし、データベースの一括登録・一括更新効率を
+
+        高める。全件を検証してから更新するため、1 件でも不正なら何も更新しない。'
       requestBody:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UserRegister'
+              $ref: '#/components/schemas/TransactionBatchCreate'
         required: true
       responses:
         '201':
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserRegistered'
+                items:
+                  $ref: '#/components/schemas/Transaction'
+                type: array
           description: Created
-        '409':
-          description: 同じメールアドレスが登録済み
+        '400':
+          description: One or more transactions are invalid
+        '404':
+          description: The specified portfolio does not exist
         '422':
           $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
-      security: []
-      summary: ユーザーを登録して API キーを払い出す。
+      summary: 複数の取引を一括登録し、各取引ごとに保有残高を更新する。
       tags:
-      - user
-security:
-- ApiKeyAuth: []
+      - transactions
 servers:
 - description: Local development
   url: http://localhost:5001
 tags:
-- description: 銘柄マスタ。取引を登録する前にここへ銘柄を作成する。
+- description: ポートフォリオ関連
+  name: portfolio
+- description: 資産関連（資産情報、Yahoo Finance価格）
   name: assets
-- description: 売買・配当などの取引履歴。保有状況はここから算出される。
+- description: 取引履歴関連
   name: transactions
-- description: 取引履歴から算出した保有状況（読み取り専用）。取得原価は移動平均法。時価情報は保持していないため含み損益は返さない。
-  name: holdings
-- description: ユーザー登録と、認証中ユーザーのプロフィール操作。
-  name: user

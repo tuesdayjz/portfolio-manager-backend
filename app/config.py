@@ -32,12 +32,13 @@ class BaseConfig:
         "info": {
             "description": (
                 "個人向けポートフォリオ管理 API。\n\n"
-                "- `assets` … 銘柄マスタ（ユーザーごとに登録）\n"
-                "- `transactions` … 売買・配当などの取引履歴\n"
-                "- `holdings` … 取引履歴から算出した保有状況（移動平均法）\n"
-                "- `user` … 認証中ユーザーのプロフィール\n\n"
-                "認証は `X-API-Key` ヘッダーで行う。"
-                "`POST /api/v1/user/register` のレスポンスで一度だけ API キーが返る。"
+                "- `portfolio` … ポートフォリオの作成、サマリー、保有残高、資産配分、推移\n"
+                "- `assets` … 資産マスタと Yahoo Finance の市場価格\n"
+                "- `transactions` … 売買の取引履歴\n\n"
+                "実際の証券発注は行わない。売買は取引履歴の記録と保有残高の更新だけを行う。\n\n"
+                "private なデータは `user_id` で絞り込む。モック／開発中は private な "
+                "GET API に `user_id` をクエリパラメータで渡す。本番ではログイン情報から "
+                "`user_id` を解決する想定。公開の資産・市場データに `user_id` は不要。"
             ),
             "contact": {"name": "Portfolio Manager Team"},
         },
@@ -45,22 +46,7 @@ class BaseConfig:
             # macOS の AirPlay レシーバーが 5000 を占有し 403 を返すため 5001 を使う。
             {"url": "http://localhost:5001", "description": "Local development"},
         ],
-        "components": {
-            "securitySchemes": {
-                "ApiKeyAuth": {
-                    "type": "apiKey",
-                    "in": "header",
-                    "name": "X-API-Key",
-                    "description": "ユーザー登録時に払い出される API キー。",
-                }
-            }
-        },
-        "security": [{"ApiKeyAuth": []}],
     }
-
-    # 一覧系のページネーション既定値
-    PAGINATION_DEFAULT_PAGE_SIZE = 50
-    PAGINATION_MAX_PAGE_SIZE = 200
 
 
 class DevelopmentConfig(BaseConfig):

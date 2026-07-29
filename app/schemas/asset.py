@@ -1,71 +1,109 @@
+"""資産（銘柄）関連のスキーマ。"""
+
 from marshmallow import Schema, fields, validate
 
-from app.enums import AssetType
-from app.schemas.common import CURRENCY_VALIDATOR, UTCDateTime
-
-_SORTABLE = {"symbol", "name", "asset_type", "created_at"}
+from app.schemas.common import (
+    NON_NEGATIVE,
+    POSITIVE_ID,
+    DateRangeQueryMixin,
+)
 
 
 class AssetSchema(Schema):
-    """銘柄（レスポンス）。"""
+    """資産マスタと保有状況を結合した内部表現。
 
-    id = fields.Str(dump_only=True)
-    symbol = fields.Str(dump_only=True, metadata={"example": "7203.T"})
-    name = fields.Str(dump_only=True, metadata={"example": "トヨタ自動車"})
-    asset_type = fields.Enum(AssetType, by_value=True, dump_only=True)
-    currency = fields.Str(dump_only=True, metadata={"example": "JPY"})
-    exchange = fields.Str(dump_only=True, allow_none=True, metadata={"example": "TSE"})
-    created_at = UTCDateTime(dump_only=True)
-    updated_at = UTCDateTime(dump_only=True)
+    `asset_master` の銘柄情報に、あるポートフォリオでの保有数量・取得価額と
+    Yahoo Finance 由来の市場価格を重ねたもの。レスポンスとしては直接返さず、
+    `AssetInfoSchema`（マスタ情報）と `HoldingSchema`（保有状況）に分けて返す。
+    """
 
-
-class AssetCreateSchema(Schema):
-    """銘柄の新規登録。"""
-
-    symbol = fields.Str(
-        required=True,
-        validate=validate.Length(min=1, max=32),
-        metadata={"description": "ティッカー / 証券コード", "example": "7203.T"},
+    asset_id = fields.Int(
+        required=True, validate=POSITIVE_ID,
+        metadata={"description": "Asset ID", "example": 1},
+    )
+    user_id = fields.Int(
+        required=True, validate=POSITIVE_ID, metadata={"example": 101}
+    )
+    portfolio_id = fields.Int(
+        required=True, validate=POSITIVE_ID, metadata={"example": 1}
+    )
+    type = fields.Str(
+        required=True, validate=validate.Length(max=20),
+        metadata={"description": "Asset type", "example": "stock"},
     )
     name = fields.Str(
         required=True,
-        validate=validate.Length(min=1, max=200),
-        metadata={"example": "トヨタ自動車"},
+        metadata={"description": "Asset name", "example": "Toyota Motor Corp."},
     )
-    asset_type = fields.Enum(AssetType, by_value=True, required=True)
-    currency = fields.Str(load_default="JPY", validate=CURRENCY_VALIDATOR)
-    exchange = fields.Str(
-        load_default=None, allow_none=True, validate=validate.Length(max=50),
-        metadata={"example": "TSE"},
+    symbol = fields.Str(
+        required=True,
+        metadata={"description": "Yahoo Finance symbol", "example": "7203.T"},
     )
-
-
-class AssetUpdateSchema(Schema):
-    """銘柄の部分更新。`symbol` は取引履歴との整合のため変更不可。"""
-
-    name = fields.Str(validate=validate.Length(min=1, max=200))
-    asset_type = fields.Enum(AssetType, by_value=True)
-    currency = fields.Str(validate=CURRENCY_VALIDATOR)
-    exchange = fields.Str(allow_none=True, validate=validate.Length(max=50))
-
-
-class AssetQuerySchema(Schema):
-    """GET /assets/ のクエリパラメータ。"""
-
-    asset_type = fields.Enum(
-        AssetType, by_value=True, metadata={"description": "資産種別で絞り込む"}
-    )
-    currency = fields.Str(validate=CURRENCY_VALIDATOR)
-    q = fields.Str(
-        metadata={"description": "symbol / name の部分一致検索", "example": "トヨタ"}
-    )
-    sort = fields.Str(
-        load_default="symbol",
+    quantity = fields.Float(
+        required=True, validate=NON_NEGATIVE,
         metadata={
-            "description": "並び順。先頭に `-` を付けると降順。",
-            "example": "-created_at",
+            "description": "how many units of the asset the user has",
+            "example": 8.5,
         },
-        validate=validate.OneOf(
-            sorted(_SORTABLE | {f"-{f}" for f in _SORTABLE})
-        ),
     )
+    purchase_price = fields.Float(
+        required=True, validate=NON_NEGATIVE,
+        metadata={"description": "取得価額", "example": 1095.80},
+    )
+    current_price = fields.Float(
+        required=True, validate=NON_NEGATIVE,
+        metadata={
+            "description": "Yahoo Finance 由来の市場価格。Supabase holdings には保存しない。",
+            "example": 2980.50,
+        },
+    )
+    currency = fields.Str(
+        required=True, metadata={"description": "通貨", "example": "JPY"}
+    )
+
+
+class AssetInfoSchema(Schema):
+    """資産マスタ情報（レスポンス）。
+
+    保有数量や取得価額のような private な値は含めない。それらは
+    `GET /portfolios/{portfolio_id}/holdings` で返す。
+    """
+
+    asset_id = fields.Int(
+        required=True, validate=POSITIVE_ID,
+        metadata={"description": "Asset ID", "example": 1},
+    )
+    type = fields.Str(
+        required=True, validate=validate.Length(max=20),
+        metadata={"description": "Asset type", "example": "stock"},
+    )
+    name = fields.Str(
+        required=True,
+        metadata={"description": "Asset name", "example": "Toyota Motor Corp."},
+    )
+    symbol = fields.Str(
+        required=True,
+        metadata={"description": "Yahoo Finance symbol", "example": "7203.T"},
+    )
+    currency = fields.Str(
+        required=True, metadata={"description": "通貨", "example": "JPY"}
+    )
+
+
+class PriceHistoryItemSchema(Schema):
+    """1 日分の OHLCV。Yahoo Finance または `asset_data_history` 由来。"""
+
+    date = fields.Date(required=True, metadata={"example": "2026-07-28"})
+    open = fields.Float(required=True, validate=NON_NEGATIVE, metadata={"example": 2950.0})
+    high = fields.Float(required=True, validate=NON_NEGATIVE, metadata={"example": 3000.0})
+    low = fields.Float(required=True, validate=NON_NEGATIVE, metadata={"example": 2920.0})
+    close = fields.Float(required=True, validate=NON_NEGATIVE, metadata={"example": 2980.5})
+    volume = fields.Int(required=True, validate=NON_NEGATIVE, metadata={"example": 1200000})
+
+
+class PriceHistoryQuerySchema(DateRangeQueryMixin, Schema):
+    """GET /assets/{asset_id}/price-history のクエリパラメータ。"""
+
+    start_date = fields.Date(metadata={"example": "2026-01-01"})
+    end_date = fields.Date(metadata={"example": "2026-07-28"})
+    interval = fields.Str(load_default="1d", metadata={"example": "1d"})

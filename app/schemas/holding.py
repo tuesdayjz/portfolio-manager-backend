@@ -1,79 +1,63 @@
-from marshmallow import Schema, fields, validate
+"""保有残高のスキーマ。"""
 
-from app.enums import AssetType
-from app.schemas.asset import AssetSchema
-from app.schemas.common import CURRENCY_VALIDATOR, AmountField, UTCDateTime
+from marshmallow import Schema, fields
 
-_SORTABLE = {"symbol", "quantity", "book_value", "realized_pnl"}
+from app.schemas.common import NON_NEGATIVE, POSITIVE_ID
 
 
 class HoldingSchema(Schema):
-    """1 銘柄あたりの保有状況。取得原価は移動平均法で算出する。"""
+    """1 銘柄あたりの保有残高（レスポンス）。
 
-    asset = fields.Nested(AssetSchema)
-    quantity = AmountField(metadata={"description": "現在の保有数量"})
-    average_cost = AmountField(
-        metadata={"description": "1 単位あたりの平均取得単価（手数料込み）"}
+    数量と平均取得単価は Supabase `holdings` の値。`current_price` は
+    Yahoo Finance 由来の市場価格で、`holdings` には保存しない。
+    """
+
+    user_id = fields.Int(
+        required=True, validate=POSITIVE_ID, metadata={"example": 101}
     )
-    book_value = AmountField(
-        metadata={"description": "取得原価の合計 = quantity × average_cost"}
+    portfolio_id = fields.Int(
+        required=True, validate=POSITIVE_ID, metadata={"example": 1}
     )
-    realized_pnl = AmountField(
-        metadata={"description": "売却による実現損益の累計（手数料・税控除後）"}
+    asset_id = fields.Int(
+        required=True, validate=POSITIVE_ID,
+        metadata={"description": "Asset ID", "example": 1},
     )
-    dividend_income = AmountField(
-        metadata={"description": "受取配当の累計（税控除後）"}
+    symbol = fields.Str(
+        required=True,
+        metadata={"description": "Yahoo Finance symbol", "example": "7203.T"},
     )
-    total_fee = AmountField(metadata={"description": "支払手数料の累計"})
-    total_tax = AmountField(metadata={"description": "支払税額の累計"})
-    currency = fields.Str()
-    transaction_count = fields.Int()
-    first_transaction_at = UTCDateTime(allow_none=True)
-    last_transaction_at = UTCDateTime(allow_none=True)
-
-
-class CurrencySummarySchema(Schema):
-    """通貨ごとの合計。為替レートを持たないため通貨横断の合算はしない。"""
-
-    currency = fields.Str()
-    book_value = AmountField()
-    realized_pnl = AmountField()
-    dividend_income = AmountField()
-    total_fee = AmountField()
-    total_tax = AmountField()
-
-
-class HoldingsResponseSchema(Schema):
-    """GET /holdings/ のレスポンス。"""
-
-    as_of = UTCDateTime(
-        metadata={"description": "この時点までの取引を集計した結果であることを示す"}
+    name = fields.Str(
+        required=True,
+        metadata={"description": "Asset name", "example": "Toyota Motor Corp."},
     )
-    base_currency = fields.Str()
-    holdings = fields.List(fields.Nested(HoldingSchema))
-    summary = fields.List(
-        fields.Nested(CurrencySummarySchema),
-        metadata={"description": "通貨ごとの集計。異なる通貨は合算しない。"},
+    quantity = fields.Float(
+        required=True, validate=NON_NEGATIVE,
+        metadata={"description": "Current holding quantity", "example": 8.5},
+    )
+    average_purchase_price = fields.Float(
+        required=True, validate=NON_NEGATIVE,
+        metadata={"description": "平均取得単価", "example": 1095.80},
+    )
+    current_price = fields.Float(
+        required=True, validate=NON_NEGATIVE,
+        metadata={
+            "description": "Yahoo Finance 由来の市場価格。Supabase holdings には保存しない。",
+            "example": 2980.50,
+        },
+    )
+    currency = fields.Str(
+        required=True, metadata={"description": "通貨", "example": "JPY"}
     )
 
 
 class HoldingsQuerySchema(Schema):
-    """GET /holdings/ のクエリパラメータ。"""
+    """GET /portfolios/{portfolio_id}/holdings のクエリパラメータ。"""
 
-    as_of = fields.Date(
-        metadata={
-            "description": "指定日終了時点の保有状況を算出する（省略時は現在）",
-            "example": "2026-06-30",
-        }
+    user_id = fields.Int(
+        required=True, validate=POSITIVE_ID,
+        metadata={"description": "User ID", "example": 101},
     )
-    asset_type = fields.Enum(AssetType, by_value=True)
-    currency = fields.Str(validate=CURRENCY_VALIDATOR)
-    include_closed = fields.Bool(
-        load_default=False,
-        metadata={"description": "保有数量が 0 になった銘柄も含めるか"},
-    )
-    sort = fields.Str(
-        load_default="-book_value",
-        validate=validate.OneOf(sorted(_SORTABLE | {f"-{f}" for f in _SORTABLE})),
-        metadata={"description": "並び順。先頭に `-` を付けると降順。"},
+    asset_id = fields.Int(
+        validate=POSITIVE_ID,
+        metadata={"description": "特定銘柄の保有残高だけを返す", "example": 1},
     )

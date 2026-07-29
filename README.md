@@ -49,45 +49,59 @@ Swagger UI の Try it out で入力仕様の検証はできる（通れば 501�
 
 ### エンドポイント
 
-すべて `/api/v1` 配下。`POST /user/register` 以外は `X-API-Key` ヘッダーが必要な設計。
+すべて `/api/v1` 配下。API 設計の内容は [`api_design/apiDesign.py`](api_design/apiDesign.py)
+（FastAPI のモック）と [`api_design/API_DESIGN.md`](api_design/API_DESIGN.md) に揃えてある。
 
-| メソッド | パス | 説明 |
-| --- | --- | --- |
-| GET / POST | `/assets/` | 銘柄の一覧・登録 |
-| GET / PATCH / DELETE | `/assets/{asset_id}` | 銘柄の取得・更新・削除 |
-| GET / POST | `/transactions/` | 取引の検索・登録 |
-| GET / PATCH / DELETE | `/transactions/{transaction_id}` | 取引の取得・更新・削除 |
-| GET | `/holdings/` | 保有状況（取引から算出） |
-| GET | `/holdings/{asset_id}` | 特定銘柄の保有状況 |
-| POST | `/user/register` | ユーザー登録（API キー払い出し） |
-| GET / PATCH / DELETE | `/user/` | 認証中ユーザーのプロフィール |
-| POST | `/user/api-key/rotate` | API キー再発行 |
+| メソッド | パス | タグ | 説明 |
+| --- | --- | --- | --- |
+| POST | `/portfolios/` | portfolio | ポートフォリオ作成 |
+| GET | `/portfolios/{portfolio_id}/summary` | portfolio | サマリー（取得価額・評価額・総資産・含み損益） |
+| GET | `/portfolios/{portfolio_id}/holdings` | portfolio | 保有残高一覧 |
+| GET | `/portfolios/{portfolio_id}/allocation` | portfolio | 資産配分（種別・通貨・銘柄別） |
+| GET | `/portfolios/{portfolio_id}/performance` | portfolio | 推移グラフ |
+| GET | `/assets/{asset_id}/` | assets | 資産マスタ情報 |
+| GET | `/assets/{asset_id}/price-history` | assets | 過去の市場価格（OHLCV） |
+| GET | `/portfolios/{portfolio_id}/transactions` | transactions | 取引履歴の検索 |
+| POST | `/portfolios/{portfolio_id}/transactions` | transactions | 取引の登録（単件） |
+| POST | `/portfolios/{portfolio_id}/transactions/batch` | transactions | 取引の一括登録 |
 
-`/transactions/` の絞り込み: `asset_id`, `start_date`, `end_date`,
-`transaction_type`, `sort`, `page`, `page_size`。
-日付は UTC 基準で、`start_date` / `end_date` はどちらも指定日を含む。
+`/transactions` の絞り込み: `user_id`（必須）, `asset_id`, `start_date`, `end_date`。
+`start_date` / `end_date` はどちらも指定日を含む。
+`/performance` は `start_date`, `end_date`, `interval`（`1d` / `1wk` / `1mo`）を取る。
 
 ### 設計メモ
 
-- **金額は文字列でやり取りする。** JSON の number は倍精度浮動小数点なので、
-  金額を通すと丸め誤差が出る。入出力は文字列で、内部では `Decimal` を使う想定。
-- **保有状況は保存しない。** `holdings` は取引履歴を時系列に再生して都度算出する設計
-  （移動平均法、手数料は取得原価に算入）。`as_of=YYYY-MM-DD` で過去時点も出せる。
-- **時価評価は対象外。** 価格取得の仕組みを前提にしないため、含み損益は返さない。
-- **通貨は合算しない。** 為替レートを持たないため、`summary` は通貨ごとに分けて返す。
-- **認証は API キー**（`X-API-Key` ヘッダー）。JWT / OAuth2 に差し替える場合は
-  `app/config.py` の `securitySchemes` を変更する。
+- **実際の証券発注は行わない。** 売買は取引履歴の記録と保有残高の更新だけを行う。
+- **所有者は `user_id` で絞り込む。** モック／開発中は private な GET API に
+  `user_id` をクエリパラメータで渡す。本番ではログイン情報から解決する想定なので、
+  その際は `app/schemas/common.py` の `UserIdQuerySchema` を外して認証に差し替える。
+  公開の資産・市場データに `user_id` は不要。
+- **`portfolio_id` はパスで受ける。** private なポートフォリオデータは必ずパスに含める。
+- **`current_price` は保存しない。** 市場価格は Yahoo Finance または
+  `asset_data_history` 由来で、Supabase `holdings` には書かない。
+- **`cash_balance` はモック専用。** 現行の Supabase スキーマに現金残高のカラムがない。
+- **一括登録は全件検証してから更新する。** 1 件でも不正なら何も更新しない。
+
+Supabase のテーブル定義と将来の実装方針は
+[`api_design/API_DESIGN.md`](api_design/API_DESIGN.md) にまとめてある。
 
 ### 構成
 
 ```
 app/
-├── schemas/     Marshmallow スキーマ（= OpenAPI 定義。ここが本体）
-├── api/         エンドポイント定義（パスと入出力の宣言のみ。処理は未実装）
-├── enums.py     AssetType / TransactionType
-└── config.py    設定（OpenAPI 設定を含む）
+├── schemas/       Marshmallow スキーマ（= OpenAPI 定義。ここが本体）
+│   ├── portfolio.py   サマリー / 配分 / 推移グラフ
+│   ├── asset.py       資産マスタ / 価格履歴
+│   ├── holding.py     保有残高
+│   ├── transaction.py 取引履歴
+│   └── common.py      共通バリデーターと user_id クエリ
+├── api/           エンドポイント定義（パスと入出力の宣言のみ。処理は未実装）
+│   └── parameters.py  パスパラメータの OpenAPI 定義
+├── enums.py       TransactionType / Interval
+└── config.py      設定（OpenAPI 設定を含む）
 ```
 
 ### 未実装
 
-DB（モデル・マイグレーション）、認証処理、保有状況の算出ロジック、テスト。
+DB（モデル・マイグレーション）、認証処理、評価額・配分・推移の算出ロジック、
+Yahoo Finance 連携、テスト。

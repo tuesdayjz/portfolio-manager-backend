@@ -1,132 +1,83 @@
-from decimal import Decimal
+"""取引履歴のスキーマ。"""
 
-from marshmallow import Schema, ValidationError, fields, validate, validates_schema
+from marshmallow import Schema, fields, validate
 
 from app.enums import TransactionType
-from app.schemas.asset import AssetSchema
-from app.schemas.common import AmountField, UTCDateTime
-
-_SORTABLE = {"executed_at", "created_at"}
-
-_TYPE_SEMANTICS = (
-    "種別ごとの意味:\n"
-    "- `BUY` / `SELL`: quantity=約定数量, price=単価\n"
-    "- `DIVIDEND`: quantity は 0、price に配当総額（税引前）を入れる\n"
-    "- `SPLIT`: quantity に分割比率（1→2 の分割なら 2）、price は 0"
+from app.schemas.common import (
+    NON_NEGATIVE,
+    POSITIVE,
+    POSITIVE_ID,
+    DateRangeQueryMixin,
 )
 
 
-class TransactionSchema(Schema):
-    """取引（レスポンス）。"""
+class TransactionItemSchema(Schema):
+    """一括登録の 1 件分。`user_id` はリクエスト全体で 1 つなので持たない。"""
 
-    id = fields.Str(dump_only=True)
-    asset_id = fields.Str(dump_only=True)
-    asset = fields.Nested(AssetSchema, dump_only=True)
-    transaction_type = fields.Enum(TransactionType, by_value=True, dump_only=True)
-    quantity = AmountField(dump_only=True)
-    price = AmountField(dump_only=True)
-    fee = AmountField(dump_only=True)
-    tax = AmountField(dump_only=True)
-    currency = fields.Str(dump_only=True)
-    gross_amount = AmountField(
-        dump_only=True, metadata={"description": "手数料・税を除いた約定金額"}
+    asset_id = fields.Int(
+        required=True, validate=POSITIVE_ID, metadata={"example": 1}
     )
-    net_amount = AmountField(
-        dump_only=True,
-        metadata={"description": "キャッシュフロー。プラスが入金、マイナスが出金。"},
-    )
-    executed_at = UTCDateTime(dump_only=True)
-    note = fields.Str(dump_only=True, allow_none=True)
-    created_at = UTCDateTime(dump_only=True)
-    updated_at = UTCDateTime(dump_only=True)
-
-
-class _TransactionWriteBase(Schema):
-    quantity = fields.Decimal(
-        as_string=True, places=10, validate=validate.Range(min=Decimal("0")),
-        metadata={"example": "100"},
-    )
-    price = fields.Decimal(
-        as_string=True, places=6, validate=validate.Range(min=Decimal("0")),
-        metadata={"example": "2850.5"},
-    )
-    fee = fields.Decimal(
-        as_string=True, places=6, validate=validate.Range(min=Decimal("0")),
-        metadata={"example": "550"},
-    )
-    tax = fields.Decimal(
-        as_string=True, places=6, validate=validate.Range(min=Decimal("0")),
-        metadata={"example": "0"},
-    )
-    executed_at = UTCDateTime(metadata={"example": "2026-04-01T00:30:00Z"})
-    note = fields.Str(allow_none=True, validate=validate.Length(max=1000))
-
-    @validates_schema
-    def check_type_semantics(self, data, **kwargs):
-        tx_type = data.get("transaction_type")
-        if tx_type is None:
-            return
-        errors: dict[str, list[str]] = {}
-        quantity = data.get("quantity")
-        price = data.get("price")
-
-        if tx_type in (TransactionType.BUY, TransactionType.SELL):
-            if quantity is not None and quantity <= 0:
-                errors["quantity"] = [f"{tx_type.value} では quantity は 0 より大きい必要があります。"]
-        elif tx_type is TransactionType.DIVIDEND:
-            if price is not None and price <= 0:
-                errors["price"] = ["DIVIDEND では price に配当総額（0 より大きい値）を指定してください。"]
-        elif tx_type is TransactionType.SPLIT:
-            if quantity is not None and quantity <= 0:
-                errors["quantity"] = ["SPLIT では quantity に分割比率（0 より大きい値）を指定してください。"]
-
-        if errors:
-            raise ValidationError(errors)
-
-
-class TransactionCreateSchema(_TransactionWriteBase):
-    """取引の新規登録。通貨は対象銘柄の設定を引き継ぐ。"""
-
-    class Meta:
-        description = _TYPE_SEMANTICS
-
-    asset_id = fields.Str(required=True)
     transaction_type = fields.Enum(
-        TransactionType, by_value=True, required=True,
-        metadata={"description": _TYPE_SEMANTICS},
+        TransactionType, by_value=True, required=True, metadata={"example": "buy"}
     )
-    quantity = fields.Decimal(
-        as_string=True, places=10, load_default=Decimal("0"),
-        validate=validate.Range(min=Decimal("0")), metadata={"example": "100"},
+    quantity = fields.Float(
+        required=True, validate=POSITIVE,
+        # apispec は Range の min_inclusive を見ないので exclusiveMinimum は手で入れる
+        metadata={"example": 5.4, "exclusiveMinimum": True},
     )
-    price = fields.Decimal(
-        as_string=True, places=6, load_default=Decimal("0"),
-        validate=validate.Range(min=Decimal("0")), metadata={"example": "2850.5"},
+    price = fields.Float(
+        required=True, validate=NON_NEGATIVE, metadata={"example": 2980.5}
     )
-    fee = fields.Decimal(
-        as_string=True, places=6, load_default=Decimal("0"),
-        validate=validate.Range(min=Decimal("0")),
+    fees = fields.Float(
+        load_default=0, validate=NON_NEGATIVE, metadata={"example": 0.0}
     )
-    tax = fields.Decimal(
-        as_string=True, places=6, load_default=Decimal("0"),
-        validate=validate.Range(min=Decimal("0")),
-    )
-    executed_at = UTCDateTime(
-        required=True, metadata={"example": "2026-04-01T00:30:00Z"}
+    date = fields.DateTime(
+        required=True, metadata={"example": "2026-05-26T18:00:00"}
     )
 
 
-class TransactionUpdateSchema(_TransactionWriteBase):
-    """取引の部分更新。`asset_id` は変更不可（削除して登録し直す）。"""
+class TransactionCreateSchema(TransactionItemSchema):
+    """取引の新規登録（単件）。"""
 
-    transaction_type = fields.Enum(TransactionType, by_value=True)
+    user_id = fields.Int(
+        required=True, validate=POSITIVE_ID, metadata={"example": 101}
+    )
 
 
-class TransactionQuerySchema(Schema):
-    """GET /transactions/ のクエリパラメータ。"""
+class TransactionSchema(TransactionCreateSchema):
+    """取引（レスポンス）。`portfolio_id` はパスから、`transaction_id` は採番される。"""
 
-    asset_id = fields.Str(
-        metadata={"description": "特定銘柄の取引だけを返す"}
+    portfolio_id = fields.Int(
+        required=True, validate=POSITIVE_ID, metadata={"example": 1}
+    )
+    transaction_id = fields.Int(
+        required=True, validate=POSITIVE_ID, metadata={"example": 1}
+    )
+
+
+class TransactionBatchCreateSchema(Schema):
+    """取引の一括登録。全件を検証してから保有残高を更新する。"""
+
+    user_id = fields.Int(
+        required=True, validate=POSITIVE_ID, metadata={"example": 101}
+    )
+    transactions = fields.List(
+        fields.Nested(TransactionItemSchema),
+        required=True,
+        validate=validate.Length(min=1),
+    )
+
+
+class TransactionQuerySchema(DateRangeQueryMixin, Schema):
+    """GET /portfolios/{portfolio_id}/transactions のクエリパラメータ。"""
+
+    user_id = fields.Int(
+        required=True, validate=POSITIVE_ID,
+        metadata={"description": "User ID", "example": 101},
+    )
+    asset_id = fields.Int(
+        validate=POSITIVE_ID,
+        metadata={"description": "特定銘柄の取引だけを返す", "example": 1},
     )
     start_date = fields.Date(
         metadata={
@@ -140,17 +91,3 @@ class TransactionQuerySchema(Schema):
             "example": "2026-12-31",
         }
     )
-    transaction_type = fields.Enum(TransactionType, by_value=True)
-    sort = fields.Str(
-        load_default="-executed_at",
-        validate=validate.OneOf(sorted(_SORTABLE | {f"-{f}" for f in _SORTABLE})),
-        metadata={"description": "並び順。先頭に `-` を付けると降順。"},
-    )
-
-    @validates_schema
-    def check_date_range(self, data, **kwargs):
-        start, end = data.get("start_date"), data.get("end_date")
-        if start and end and start > end:
-            raise ValidationError(
-                {"end_date": ["end_date は start_date 以降にしてください。"]}
-            )
