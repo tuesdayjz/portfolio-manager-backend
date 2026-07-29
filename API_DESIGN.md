@@ -40,6 +40,7 @@ record portfolio transactions and update current holdings.
 
 | Tag | Japanese label | Purpose |
 | --- | --- | --- |
+| `auth` | 認証関連 | Signup, login, and logout |
 | `portfolio` | ポートフォリオ関連 | Portfolio creation, summary, holdings, allocation, and performance |
 | `assets` | 資産関連 | Asset master data and Yahoo Finance market prices |
 | `transactions` | 取引履歴関連 | Buy/sell transaction history |
@@ -49,6 +50,52 @@ record portfolio transactions and update current holdings.
 Paths below are shown without a prefix. The Flask app serves them under
 `/api/v1`, so `GET /portfolios/1/summary` is
 `GET /api/v1/portfolios/1/summary`.
+
+### Auth
+
+`POST /auth/signup`
+
+Registers a user and creates one default portfolio. Future production behavior
+uses Supabase Auth for the password and token.
+
+Request:
+
+```json
+{
+  "email": "user@example.com",
+  "password": "password123",
+  "portfolio_name": "Main Portfolio",
+  "base_currency": "JPY"
+}
+```
+
+Response:
+
+```json
+{
+  "access_token": "mock-access-token-101",
+  "token_type": "bearer",
+  "user": {
+    "user_id": 101,
+    "email": "user@example.com"
+  },
+  "portfolio": {
+    "portfolio_id": 1,
+    "name": "Main Portfolio",
+    "base_currency": "JPY"
+  }
+}
+```
+
+`POST /auth/login`
+
+Logs in with email/password and returns a bearer token plus the user's default
+portfolio.
+
+`POST /auth/logout`
+
+Logs out the current session. Future production behavior should clear the
+Supabase session/token on the client side.
 
 ### Portfolio
 

@@ -65,6 +65,56 @@ components:
       - symbol
       - type
       type: object
+    AuthPortfolio:
+      additionalProperties: false
+      properties:
+        base_currency:
+          example: JPY
+          type: string
+        name:
+          example: Main Portfolio
+          type: string
+        portfolio_id:
+          example: 1
+          type: integer
+      required:
+      - base_currency
+      - name
+      - portfolio_id
+      type: object
+    AuthResponse:
+      additionalProperties: false
+      properties:
+        access_token:
+          example: mock-access-token-101
+          type: string
+        portfolio:
+          $ref: '#/components/schemas/AuthPortfolio'
+        token_type:
+          example: bearer
+          type: string
+        user:
+          $ref: '#/components/schemas/AuthUser'
+      required:
+      - access_token
+      - portfolio
+      - token_type
+      - user
+      type: object
+    AuthUser:
+      additionalProperties: false
+      properties:
+        email:
+          example: user@example.com
+          format: email
+          type: string
+        user_id:
+          example: 101
+          type: integer
+      required:
+      - email
+      - user_id
+      type: object
     Error:
       additionalProperties: false
       properties:
@@ -135,6 +185,30 @@ components:
       - quantity
       - symbol
       - user_id
+      type: object
+    LoginRequest:
+      additionalProperties: false
+      properties:
+        email:
+          example: user@example.com
+          format: email
+          type: string
+        password:
+          example: password123
+          type: string
+          writeOnly: true
+      required:
+      - email
+      - password
+      type: object
+    LogoutResponse:
+      additionalProperties: false
+      properties:
+        message:
+          example: Logged out
+          type: string
+      required:
+      - message
       type: object
     PaginationMetadata:
       additionalProperties: false
@@ -362,6 +436,30 @@ components:
       - open
       - volume
       type: object
+    SignupRequest:
+      additionalProperties: false
+      properties:
+        base_currency:
+          example: JPY
+          type: string
+        email:
+          example: user@example.com
+          format: email
+          type: string
+        password:
+          example: password123
+          minLength: 8
+          type: string
+          writeOnly: true
+        portfolio_name:
+          example: Main Portfolio
+          type: string
+      required:
+      - base_currency
+      - email
+      - password
+      - portfolio_name
+      type: object
     Transaction:
       additionalProperties: false
       properties:
@@ -515,6 +613,8 @@ info:
   description: '個人向けポートフォリオ管理 API。
 
 
+    - `auth` … ユーザー登録、ログイン、ログアウト
+
     - `portfolio` … ポートフォリオの作成、サマリー、保有残高、資産配分、推移
 
     - `assets` … 資産マスタと Yahoo Finance の市場価格
@@ -613,6 +713,77 @@ paths:
         example: 1
         minimum: 1
         type: integer
+  /api/v1/auth/login:
+    post:
+      description: '本番では Supabase Auth の signInWithPassword を使用し、access token を
+
+        private API の認証に使う想定。'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+          description: OK
+        '401':
+          description: Invalid email or password
+        '422':
+          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
+        default:
+          $ref: '#/components/responses/DEFAULT_ERROR'
+      summary: ログインを行う。
+      tags:
+      - auth
+  /api/v1/auth/logout:
+    post:
+      description: 本番ではクライアント側で token/session を破棄する想定。
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutResponse'
+          description: OK
+        default:
+          $ref: '#/components/responses/DEFAULT_ERROR'
+      summary: ログアウトを行う。
+      tags:
+      - auth
+  /api/v1/auth/signup:
+    post:
+      description: 'Mock/設計版ではユーザーとデフォルトポートフォリオを作成する想定。
+
+        本番では Supabase Auth の signUp を使用し、password は public schema に
+
+        保存しない。'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignupRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+          description: Created
+        '409':
+          description: Email already exists
+        '422':
+          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
+        default:
+          $ref: '#/components/responses/DEFAULT_ERROR'
+      summary: ユーザー登録を行う。
+      tags:
+      - auth
   /api/v1/portfolios/:
     post:
       requestBody:
@@ -967,6 +1138,8 @@ servers:
 - description: Local development
   url: http://localhost:5001
 tags:
+- description: 認証関連
+  name: auth
 - description: ポートフォリオ関連
   name: portfolio
 - description: 資産関連（資産情報、Yahoo Finance価格）

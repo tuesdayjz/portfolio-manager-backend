@@ -53,6 +53,9 @@ Swagger UI の Try it out で入力仕様の検証はできる（通れば 501�
 
 | メソッド | パス | タグ | 説明 |
 | --- | --- | --- | --- |
+| POST | `/auth/signup` | auth | ユーザー登録 |
+| POST | `/auth/login` | auth | ログイン |
+| POST | `/auth/logout` | auth | ログアウト |
 | POST | `/portfolios/` | portfolio | ポートフォリオ作成 |
 | GET | `/portfolios/{portfolio_id}/summary` | portfolio | サマリー（取得価額・評価額・総資産・含み損益） |
 | GET | `/portfolios/{portfolio_id}/holdings` | portfolio | 保有残高一覧 |
@@ -89,6 +92,7 @@ Supabase のテーブル定義と将来の実装方針は
 ```
 app/
 ├── schemas/       Marshmallow スキーマ（= OpenAPI 定義。ここが本体）
+│   ├── auth.py        登録 / ログイン / ログアウト
 │   ├── portfolio.py   サマリー / 配分 / 推移グラフ
 │   ├── asset.py       資産マスタ / 価格履歴
 │   ├── holding.py     保有残高
