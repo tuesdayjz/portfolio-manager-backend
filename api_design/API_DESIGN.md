@@ -9,6 +9,9 @@ transactions, inspect market prices, and review portfolio valuation.
 This draft does not place real brokerage orders. Buy and sell actions only
 record portfolio transactions and update current holdings.
 
+Login/signup is also a mock API design. Future production behavior should use
+Supabase Auth for password storage and token issuing.
+
 ## Data Source Plan
 
 - Supabase stores private portfolio data:
@@ -18,6 +21,8 @@ record portfolio transactions and update current holdings.
   - `asset_data_history`
   - `holdings`
   - `transactions`
+- Supabase Auth stores login credentials and issues access tokens.
+- Do not store passwords in `public.users`.
 - Yahoo Finance provides market data by `asset_master.symbol`.
 - `asset_data_history.close_price` can store historical market close prices.
 - A background job can periodically refresh many symbols:
@@ -28,9 +33,10 @@ record portfolio transactions and update current holdings.
 
 ## Data Access Rules
 
-- User-owned portfolio data must be filtered by `user_id`.
-- During mock/development, private `GET` APIs require `user_id` as a query
-  parameter.
+- User-owned portfolio data must be filtered by the authenticated user.
+- During mock/development, private APIs support either:
+  - `Authorization: Bearer mock-access-token-...`
+  - explicit `user_id` as a Swagger fallback
 - `portfolio_id` is required in the path for private portfolio data.
 - In production, the backend can get `user_id` from login/auth instead of query
   parameters.
@@ -40,11 +46,77 @@ record portfolio transactions and update current holdings.
 
 | Tag | Japanese label | Purpose |
 | --- | --- | --- |
+| `auth` | 認証関連 | Signup, login, and logout |
 | `portfolio` | ポートフォリオ関連 | Portfolio creation, summary, holdings, allocation, and performance |
 | `assets` | 資産関連 | Asset master data and Yahoo Finance market prices |
 | `transactions` | 取引履歴関連 | Buy/sell transaction history |
 
 ## Current Mock Endpoints
+
+### Auth
+
+`POST /auth/signup`
+
+Creates a mock user and one default mock portfolio.
+
+Request:
+
+```json
+{
+  "email": "user@example.com",
+  "password": "password123",
+  "portfolio_name": "Main Portfolio",
+  "base_currency": "JPY"
+}
+```
+
+Response:
+
+```json
+{
+  "access_token": "mock-access-token-101",
+  "token_type": "bearer",
+  "user": {
+    "user_id": 101,
+    "email": "user@example.com"
+  },
+  "portfolio": {
+    "portfolio_id": 1,
+    "name": "Main Portfolio",
+    "base_currency": "JPY"
+  }
+}
+```
+
+Behavior:
+
+- Returns `409` when the email already exists.
+- Mock token is only for Swagger/API design.
+- Future production should call Supabase Auth `signUp()`.
+
+`POST /auth/login`
+
+Checks email/password and returns a mock bearer token plus the user's primary
+portfolio.
+
+Request:
+
+```json
+{
+  "email": "user@example.com",
+  "password": "password123"
+}
+```
+
+Behavior:
+
+- Returns `401` for wrong email or password.
+- Future production should call Supabase Auth `signInWithPassword()`.
+
+`POST /auth/logout`
+
+Logs out the mock user. In production, the frontend should discard the access
+token and Supabase session.
 
 ### Portfolio
 
@@ -88,7 +160,8 @@ GET /portfolios/1/summary?user_id=101
 
 Notes:
 
-- `user_id` is required for mock owner checking.
+- Use `Authorization: Bearer ...` when available.
+- `user_id` is still accepted for simple Swagger mock testing.
 - Market value uses Yahoo Finance or `asset_data_history` prices, not
   `holdings`.
 - `cash_balance` is mock-only because the current Supabase schema has no cash
@@ -103,6 +176,13 @@ Request:
 
 ```text
 GET /portfolios/1/holdings?user_id=101
+```
+
+Token version:
+
+```text
+GET /portfolios/1/holdings
+Authorization: Bearer mock-access-token-101
 ```
 
 Supports filters:
@@ -190,6 +270,13 @@ Request:
 GET /portfolios/1/transactions?user_id=101
 ```
 
+Token version:
+
+```text
+GET /portfolios/1/transactions
+Authorization: Bearer mock-access-token-101
+```
+
 Supports filters:
 
 - `user_id` required
@@ -225,6 +312,7 @@ Request:
 Behavior:
 
 - Uses `portfolio_id` from the path.
+- Uses `Authorization` token when available; `user_id` remains as mock fallback.
 - `buy` inserts one transaction and increases the matching holding quantity.
 - `buy` recalculates holding average cost.
 - `sell` inserts one transaction and decreases the matching holding quantity.
@@ -271,6 +359,9 @@ Purpose:
 
 The current Supabase schema should stay unchanged.
 
+Supabase Auth should be enabled separately for email/password login. Auth owns
+passwords and session tokens. The public `users` table is the app profile table.
+
 ### `users`
 
 | Column | Type | Notes |
@@ -279,6 +370,14 @@ The current Supabase schema should stay unchanged.
 | `email` | text | User email |
 | `created_at` | timestamp with time zone | Created timestamp |
 | `updated_at` | timestamp with time zone | Updated timestamp |
+
+Auth notes:
+
+- `public.users.id` should match the Supabase Auth user UUID.
+- `public.users.email` should match the Supabase Auth user email.
+- Do not add a password column.
+- A future database trigger can insert `public.users` automatically when
+  Supabase creates an Auth user.
 
 ### `portfolio`
 
@@ -357,6 +456,16 @@ Database behavior notes:
   the current schema has no cash balance column/table.
 
 ## Future Supabase Behavior
+
+Auth flow:
+
+1. Enable Supabase Email/Password provider.
+2. On signup, call Supabase Auth `signUp()`.
+3. Add a trigger/function so new `auth.users` rows create matching
+   `public.users` rows.
+4. Create one default `public.portfolio` row for the new user.
+5. On login, call Supabase Auth `signInWithPassword()` and use the access token
+   for private portfolio APIs.
 
 1. For transaction create, use path `portfolio_id` and body `asset_id` to find
    or create a matching `holdings` row.

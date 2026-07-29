@@ -3,7 +3,7 @@
 import datetime as dt
 from typing import Dict, List, Literal, Optional
 
-from fastapi import FastAPI, HTTPException, Path, Query
+from fastapi import FastAPI, Header, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 
 
@@ -11,11 +11,46 @@ app = FastAPI(
     title="Portfolio Manager API spec",
     version="1.0.0",
     openapi_tags=[
+        {"name": "auth", "description": "認証関連"},
         {"name": "portfolio", "description": "ポートフォリオ関連"},
         {"name": "assets", "description": "資産関連（資産情報、Yahoo Finance価格）"},
         {"name": "transactions", "description": "取引履歴関連"},
     ],
 )
+
+
+class SignupRequest(BaseModel):
+    email: str = Field(..., examples=["user@example.com"])
+    password: str = Field(..., min_length=8, examples=["password123"])
+    portfolio_name: str = Field(..., examples=["Main Portfolio"])
+    base_currency: str = Field(..., examples=["JPY"])
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(..., examples=["user@example.com"])
+    password: str = Field(..., examples=["password123"])
+
+
+class AuthUser(BaseModel):
+    user_id: int = Field(..., examples=[101])
+    email: str = Field(..., examples=["user@example.com"])
+
+
+class AuthPortfolio(BaseModel):
+    portfolio_id: int = Field(..., examples=[1])
+    name: str = Field(..., examples=["Main Portfolio"])
+    base_currency: str = Field(..., examples=["JPY"])
+
+
+class AuthResponse(BaseModel):
+    access_token: str = Field(..., examples=["mock-access-token-101"])
+    token_type: str = Field(..., examples=["bearer"])
+    user: AuthUser
+    portfolio: AuthPortfolio
+
+
+class LogoutResponse(BaseModel):
+    message: str = Field(..., examples=["Logged out"])
 
 
 class PortfolioSummary(BaseModel):
@@ -108,16 +143,27 @@ class TransactionItem(BaseModel):
 
 
 class TransactionCreate(TransactionItem):
-    user_id: int = Field(..., ge=1, examples=[101])
+    user_id: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Mock fallback user ID. Future production should use Authorization bearer token.",
+        examples=[101],
+    )
 
 
 class Transaction(TransactionCreate):
+    user_id: int = Field(..., ge=1, examples=[101])
     portfolio_id: int = Field(..., ge=1, examples=[1])
     transaction_id: int = Field(..., ge=1, examples=[1])
 
 
 class TransactionBatchCreate(BaseModel):
-    user_id: int = Field(..., ge=1, examples=[101])
+    user_id: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="Mock fallback user ID. Future production should use Authorization bearer token.",
+        examples=[101],
+    )
     transactions: List[TransactionItem] = Field(..., min_length=1)
 
 
@@ -166,6 +212,16 @@ portfolios = {
         "cash_balance": 1250000.0,
     }
 }
+
+mock_users = {
+    101: {
+        "user_id": 101,
+        "email": "demo@example.com",
+        "password": "password123",
+    }
+}
+
+mock_tokens = {"mock-access-token-101": 101}
 
 assets: Dict[int, Asset] = {
     1: Asset(
@@ -247,6 +303,60 @@ def get_asset_or_404(asset_id: int) -> Asset:
     if asset is None:
         raise HTTPException(status_code=404, detail="The specified asset does not exist")
     return asset
+
+
+def token_for_user(user_id: int) -> str:
+    token = f"mock-access-token-{user_id}"
+    mock_tokens[token] = user_id
+    return token
+
+
+def resolve_user_id(
+    authorization: Optional[str],
+    user_id: Optional[int],
+) -> int:
+    if authorization:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not token:
+            raise HTTPException(status_code=401, detail="Invalid authorization header")
+        token_user_id = mock_tokens.get(token)
+        if token_user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+        if user_id is not None and user_id != token_user_id:
+            raise HTTPException(status_code=403, detail="Token user does not match user_id")
+        return token_user_id
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Authorization token or user_id is required")
+    return user_id
+
+
+def find_user_by_email(email: str) -> Optional[Dict[str, object]]:
+    normalized_email = email.lower()
+    for user in mock_users.values():
+        if str(user["email"]).lower() == normalized_email:
+            return user
+    return None
+
+
+def find_primary_portfolio(user_id: int) -> Dict[str, object]:
+    for portfolio in portfolios.values():
+        if portfolio["user_id"] == user_id:
+            return portfolio
+    raise HTTPException(status_code=404, detail="The specified portfolio does not exist")
+
+
+def make_auth_response(user: Dict[str, object], portfolio: Dict[str, object]) -> AuthResponse:
+    user_id = int(user["user_id"])
+    return AuthResponse(
+        access_token=token_for_user(user_id),
+        token_type="bearer",
+        user=AuthUser(user_id=user_id, email=str(user["email"])),
+        portfolio=AuthPortfolio(
+            portfolio_id=int(portfolio["portfolio_id"]),
+            name=str(portfolio["name"]),
+            base_currency=str(portfolio["currency"]),
+        ),
+    )
 
 
 def portfolio_assets(portfolio_id: Optional[int] = None) -> List[Asset]:
@@ -351,6 +461,8 @@ def calculate_post_transaction_asset(
     portfolio_id: int,
     request: TransactionCreate,
 ) -> Asset:
+    if request.user_id is None:
+        raise HTTPException(status_code=401, detail="Authorization token or user_id is required")
     if asset.user_id != request.user_id or asset.portfolio_id != portfolio_id:
         raise HTTPException(
             status_code=400,
@@ -379,6 +491,8 @@ def build_transaction_request(user_id: int, transaction_item: TransactionItem) -
 
 
 def apply_transaction(portfolio_id: int, request: TransactionCreate) -> Transaction:
+    if request.user_id is None:
+        raise HTTPException(status_code=401, detail="Authorization token or user_id is required")
     asset = get_asset_or_404(request.asset_id)
     assets[request.asset_id] = calculate_post_transaction_asset(asset, portfolio_id, request)
     transaction = Transaction(
@@ -388,6 +502,72 @@ def apply_transaction(portfolio_id: int, request: TransactionCreate) -> Transact
     )
     transactions.append(transaction)
     return transaction
+
+
+@app.post(
+    "/auth/signup",
+    response_model=AuthResponse,
+    status_code=201,
+    responses={409: {"description": "Email already exists"}},
+    tags=["auth"],
+    summary="API to sign up",
+    description=(
+        "ユーザー登録を行う。Mock版ではメモリ上にユーザーとデフォルトポートフォリオを作成する。"
+        "本番ではSupabase AuthのsignUpを使用する想定。"
+    ),
+)
+def signup(request: SignupRequest):
+    if find_user_by_email(request.email) is not None:
+        raise HTTPException(status_code=409, detail="Email already exists")
+
+    user_id = max(mock_users.keys(), default=100) + 1
+    portfolio_id = max(portfolios.keys(), default=0) + 1
+    user = {
+        "user_id": user_id,
+        "email": request.email,
+        "password": request.password,
+    }
+    portfolio = {
+        "portfolio_id": portfolio_id,
+        "user_id": user_id,
+        "name": request.portfolio_name,
+        "currency": request.base_currency,
+        "cash_balance": 0.0,
+    }
+    mock_users[user_id] = user
+    portfolios[portfolio_id] = portfolio
+    return make_auth_response(user, portfolio)
+
+
+@app.post(
+    "/auth/login",
+    response_model=AuthResponse,
+    responses={401: {"description": "Invalid email or password"}},
+    tags=["auth"],
+    summary="API to log in",
+    description="ログインを行う。Mock版ではメールアドレスとパスワードを確認し、mock bearer tokenを返す。",
+)
+def login(request: LoginRequest):
+    user = find_user_by_email(request.email)
+    if user is None or user["password"] != request.password:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    portfolio = find_primary_portfolio(int(user["user_id"]))
+    return make_auth_response(user, portfolio)
+
+
+@app.post(
+    "/auth/logout",
+    response_model=LogoutResponse,
+    tags=["auth"],
+    summary="API to log out",
+    description="ログアウトを行う。Mock版ではクライアント側でtokenを破棄する想定。",
+)
+def logout(authorization: Optional[str] = Header(default=None, alias="Authorization")):
+    if authorization:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() == "bearer" and token in mock_tokens:
+            mock_tokens.pop(token)
+    return LogoutResponse(message="Logged out")
 
 
 @app.get(
@@ -400,10 +580,12 @@ def apply_transaction(portfolio_id: int, request: TransactionCreate) -> Transact
 )
 def fetch_portfolio_summary(
     portfolio_id: int = Path(..., ge=1, description="Portfolio ID", examples=[1]),
-    user_id: int = Query(..., ge=1, description="User ID", examples=[101]),
+    user_id: Optional[int] = Query(default=None, ge=1, description="Mock fallback User ID", examples=[101]),
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ):
+    resolved_user_id = resolve_user_id(authorization, user_id)
     portfolio = portfolios.get(portfolio_id)
-    if portfolio is None or portfolio["user_id"] != user_id:
+    if portfolio is None or portfolio["user_id"] != resolved_user_id:
         raise HTTPException(status_code=404, detail="The specified portfolio does not exist")
 
     values = calculate_values(portfolio_assets(portfolio_id=portfolio_id))
@@ -427,13 +609,15 @@ def fetch_portfolio_summary(
 )
 def fetch_portfolio_performance(
     portfolio_id: int = Path(..., ge=1, description="Portfolio ID", examples=[1]),
-    user_id: int = Query(..., ge=1, description="User ID", examples=[101]),
+    user_id: Optional[int] = Query(default=None, ge=1, description="Mock fallback User ID", examples=[101]),
     start_date: Optional[dt.date] = Query(default=None, examples=["2026-07-26"]),
     end_date: Optional[dt.date] = Query(default=None, examples=["2026-07-28"]),
     interval: Literal["1d", "1wk", "1mo"] = Query(default="1d", examples=["1d"]),
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ):
+    resolved_user_id = resolve_user_id(authorization, user_id)
     portfolio = portfolios.get(portfolio_id)
-    if portfolio is None or portfolio["user_id"] != user_id:
+    if portfolio is None or portfolio["user_id"] != resolved_user_id:
         raise HTTPException(status_code=404, detail="The specified portfolio does not exist")
 
     graph_start_date = start_date or dt.date(2026, 7, 26)
@@ -447,13 +631,13 @@ def fetch_portfolio_performance(
         points.append(
             PerformanceGraphPoint(
                 date=current_date,
-                **calculate_graph_values(user_id, portfolio_id, current_date),
+                **calculate_graph_values(resolved_user_id, portfolio_id, current_date),
             )
         )
         current_date = next_graph_date(current_date, interval)
 
     return PerformanceGraph(
-        user_id=user_id,
+        user_id=resolved_user_id,
         portfolio_id=portfolio_id,
         currency=portfolio["currency"],
         interval=interval,
@@ -515,15 +699,17 @@ def fetch_asset(
 )
 def fetch_holdings(
     portfolio_id: int = Path(..., ge=1, description="Portfolio ID", examples=[1]),
-    user_id: int = Query(..., ge=1, description="User ID", examples=[101]),
+    user_id: Optional[int] = Query(default=None, ge=1, description="Mock fallback User ID", examples=[101]),
     asset_id: Optional[int] = Query(default=None),
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ):
+    resolved_user_id = resolve_user_id(authorization, user_id)
     portfolio = portfolios.get(portfolio_id)
-    if portfolio is None or portfolio["user_id"] != user_id:
+    if portfolio is None or portfolio["user_id"] != resolved_user_id:
         raise HTTPException(status_code=404, detail="The specified portfolio does not exist")
 
     filtered_assets = list(assets.values())
-    filtered_assets = [asset for asset in filtered_assets if asset.user_id == user_id]
+    filtered_assets = [asset for asset in filtered_assets if asset.user_id == resolved_user_id]
     filtered_assets = [asset for asset in filtered_assets if asset.portfolio_id == portfolio_id]
     if asset_id is not None:
         filtered_assets = [asset for asset in filtered_assets if asset.asset_id == asset_id]
@@ -553,20 +739,22 @@ def fetch_holdings(
 )
 def fetch_transactions(
     portfolio_id: int = Path(..., ge=1, description="Portfolio ID", examples=[1]),
-    user_id: int = Query(..., ge=1, description="User ID", examples=[101]),
+    user_id: Optional[int] = Query(default=None, ge=1, description="Mock fallback User ID", examples=[101]),
     asset_id: Optional[int] = Query(default=None),
     start_date: Optional[dt.date] = Query(default=None),
     end_date: Optional[dt.date] = Query(default=None),
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ):
+    resolved_user_id = resolve_user_id(authorization, user_id)
     portfolio = portfolios.get(portfolio_id)
-    if portfolio is None or portfolio["user_id"] != user_id:
+    if portfolio is None or portfolio["user_id"] != resolved_user_id:
         raise HTTPException(status_code=404, detail="The specified portfolio does not exist")
 
     filtered_transactions = transactions
     filtered_transactions = [
         transaction
         for transaction in filtered_transactions
-        if transaction.user_id == user_id
+        if transaction.user_id == resolved_user_id
     ]
     filtered_transactions = [
         transaction
@@ -606,11 +794,14 @@ def fetch_transactions(
 def record_transaction(
     portfolio_id: int = Path(..., ge=1, description="Portfolio ID", examples=[1]),
     request: TransactionCreate = ...,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ):
+    resolved_user_id = resolve_user_id(authorization, request.user_id)
     portfolio = portfolios.get(portfolio_id)
-    if portfolio is None or portfolio["user_id"] != request.user_id:
+    if portfolio is None or portfolio["user_id"] != resolved_user_id:
         raise HTTPException(status_code=404, detail="The specified portfolio does not exist")
-    return apply_transaction(portfolio_id, request)
+    request_with_user = request.model_copy(update={"user_id": resolved_user_id})
+    return apply_transaction(portfolio_id, request_with_user)
 
 
 @app.post(
@@ -628,14 +819,16 @@ def record_transaction(
 def record_transaction_batch(
     portfolio_id: int = Path(..., ge=1, description="Portfolio ID", examples=[1]),
     request: TransactionBatchCreate = ...,
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ):
+    resolved_user_id = resolve_user_id(authorization, request.user_id)
     portfolio = portfolios.get(portfolio_id)
-    if portfolio is None or portfolio["user_id"] != request.user_id:
+    if portfolio is None or portfolio["user_id"] != resolved_user_id:
         raise HTTPException(status_code=404, detail="The specified portfolio does not exist")
 
     simulated_assets = {asset_id: asset.model_copy(deep=True) for asset_id, asset in assets.items()}
     transaction_requests = [
-        build_transaction_request(request.user_id, transaction_item)
+        build_transaction_request(resolved_user_id, transaction_item)
         for transaction_item in request.transactions
     ]
     for transaction_request in transaction_requests:
@@ -706,16 +899,18 @@ def fetch_price_history(
 )
 def fetch_portfolio_allocation(
     portfolio_id: int = Path(..., ge=1, description="Portfolio ID", examples=[1]),
-    user_id: int = Query(..., ge=1, description="User ID", examples=[101]),
+    user_id: Optional[int] = Query(default=None, ge=1, description="Mock fallback User ID", examples=[101]),
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ):
+    resolved_user_id = resolve_user_id(authorization, user_id)
     portfolio = portfolios.get(portfolio_id)
-    if portfolio is None or portfolio["user_id"] != user_id:
+    if portfolio is None or portfolio["user_id"] != resolved_user_id:
         raise HTTPException(status_code=404, detail="The specified portfolio does not exist")
 
     filtered_assets = [
         asset
         for asset in portfolio_assets(portfolio_id=portfolio_id)
-        if asset.user_id == user_id
+        if asset.user_id == resolved_user_id
     ]
     market_values = {
         asset.asset_id: asset.quantity * asset.current_price for asset in filtered_assets
