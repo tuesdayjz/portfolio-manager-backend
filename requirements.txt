@@ -3,5 +3,3 @@ flask-smorest>=0.44,<0.47
 marshmallow>=3.19,<4.0
 python-dotenv>=1.0
 PyYAML>=6.0
-fastapi
-uvicorn

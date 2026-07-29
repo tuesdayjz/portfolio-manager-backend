@@ -49,8 +49,7 @@ Swagger UI の Try it out で入力仕様の検証はできる（通れば 501�
 
 ### エンドポイント
 
-すべて `/api/v1` 配下。API 設計の内容は [`api_design/apiDesign.py`](api_design/apiDesign.py)
-（FastAPI のモック）と [`api_design/API_DESIGN.md`](api_design/API_DESIGN.md) に揃えてある。
+すべて `/api/v1` 配下。設計の背景は [`API_DESIGN.md`](API_DESIGN.md) を参照。
 
 | メソッド | パス | タグ | 説明 |
 | --- | --- | --- | --- |
@@ -83,7 +82,7 @@ Swagger UI の Try it out で入力仕様の検証はできる（通れば 501�
 - **一括登録は全件検証してから更新する。** 1 件でも不正なら何も更新しない。
 
 Supabase のテーブル定義と将来の実装方針は
-[`api_design/API_DESIGN.md`](api_design/API_DESIGN.md) にまとめてある。
+[`API_DESIGN.md`](API_DESIGN.md) にまとめてある。
 
 ### 構成
 

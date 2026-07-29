@@ -46,6 +46,10 @@ record portfolio transactions and update current holdings.
 
 ## Current Mock Endpoints
 
+Paths below are shown without a prefix. The Flask app serves them under
+`/api/v1`, so `GET /portfolios/1/summary` is
+`GET /api/v1/portfolios/1/summary`.
+
 ### Portfolio
 
 `POST /portfolios/`
@@ -369,12 +373,16 @@ Database behavior notes:
 
 ## Run Locally
 
+The API is implemented as a Flask + flask-smorest design under `app/`. See the
+[README](README.md) for setup.
+
 ```bash
-python3 -m uvicorn api_design.apiDesign:app --host 127.0.0.1 --port 8000
+export FLASK_APP=wsgi.py
+.venv/bin/flask run --port=5001
 ```
 
 Swagger UI:
 
 ```text
-http://127.0.0.1:8000/docs
+http://localhost:5001/docs
 ```
