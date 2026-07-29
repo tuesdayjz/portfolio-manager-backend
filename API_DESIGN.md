@@ -18,10 +18,13 @@ record portfolio transactions and update current holdings.
   - `asset_data_history`
   - `holdings`
   - `transactions`
-- Yahoo Finance provides market data by `asset_master.symbol`.
+  - `currency`
+  - `asset_type`
+  - `transaction_type`
+- Yahoo Finance provides market data by `asset_master.ticker`.
 - `asset_data_history.close_price` can store historical market close prices.
-- A background job can periodically refresh many symbols:
-  - read active `asset_master.symbol` values from Supabase
+- A background job can periodically refresh many tickers:
+  - read active `asset_master.ticker` values from Supabase
   - fetch prices from Yahoo Finance
   - write refreshed prices to `asset_data_history` or a future market snapshot area
   - do not write current market prices into `holdings`
@@ -210,14 +213,14 @@ Behavior:
 
 - Reconstructs historical holding quantity from `transactions`.
 - Uses `asset_data_history.close_price` by date for market value.
-- Uses `asset_master.symbol` as the Yahoo Finance symbol.
+- Uses `asset_master.ticker` as the Yahoo Finance ticker.
 - Does not require any Supabase schema change.
 
 ### Assets
 
 `GET /assets/{asset_id}/`
 
-Returns one asset master record. The response includes `symbol`, which connects
+Returns one asset master record. The response includes `ticker`, which connects
 the asset to Yahoo Finance market data.
 
 This endpoint does not return private user-owned values like quantity or
@@ -226,7 +229,7 @@ average cost. Those values belong to `GET /portfolios/{portfolio_id}/holdings`.
 `GET /assets/{asset_id}/price-history`
 
 Returns mock historical OHLCV price data. Future behavior uses the asset
-`symbol` to fetch Yahoo Finance history or reads cached close prices from
+`ticker` to fetch Yahoo Finance history or reads cached close prices from
 `asset_data_history`.
 
 ### Transactions
@@ -251,7 +254,7 @@ Supports filters:
 Future extensible query options:
 
 - `transaction_type`: filter by `buy` or `sell`
-- `symbol`: filter transactions after joining `asset_master`
+- `ticker`: filter transactions after joining `asset_master`
 - `limit` and `offset`: support pagination
 - `sort_by` and `sort_order`: support sorting by date, quantity, price, or fees
 
@@ -320,80 +323,136 @@ Purpose:
 
 ## Supabase Database Design
 
-The current Supabase schema should stay unchanged.
+This section reflects the current Supabase `public` schema checked on
+2026-07-29. The API can still use readable request/response fields, but the
+database now normalizes currency, asset type, and transaction type through
+lookup tables.
 
 ### `users`
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `id` | uuid | Primary key |
-| `email` | text | User email |
-| `created_at` | timestamp with time zone | Created timestamp |
-| `updated_at` | timestamp with time zone | Updated timestamp |
+| `email` | text | Required user email |
+| `created_at` | timestamp with time zone | Required; default `now()` |
+| `updated_at` | timestamp with time zone | Required; default `now()` |
+| `name` | character varying | Optional display name |
+| `password` | text | Optional current schema column; future production should use Supabase Auth instead |
 
 ### `portfolio`
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `id` | uuid | Primary key; API name is `portfolio_id` |
-| `user_id` | uuid | Owner; references `users.id` |
-| `name` | text | Portfolio name |
-| `base_currency` | character | Portfolio base currency |
-| `created_at` | timestamp with time zone | Created timestamp |
-| `updated_at` | timestamp with time zone | Updated timestamp |
+| `id` | uuid | Primary key; default `gen_random_uuid()`; API name is `portfolio_id` |
+| `user_id` | uuid | Required owner; references `users.id` |
+| `name` | text | Required portfolio name; default `Default Portfolio` |
+| `created_at` | timestamp with time zone | Required; default `now()` |
+| `updated_at` | timestamp with time zone | Required; default `now()` |
 
 ### `asset_master`
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `id` | uuid | Primary key; API name is `asset_id` |
-| `symbol` | text | Yahoo Finance symbol, such as `AAPL` or `7203.T` |
-| `name` | text | Asset name |
-| `asset_type` | text | Example: `stock` |
-| `currency` | character | Asset currency |
-| `created_at` | timestamp with time zone | Created timestamp |
+| `id` | uuid | Primary key; default `gen_random_uuid()`; API name is `asset_id` |
+| `ticker` | text | Required Yahoo Finance ticker, such as `AAPL` or `7203.T` |
+| `name` | text | Optional asset name |
+| `asset_type` | text | Optional legacy readable asset type |
+| `asset_type_id` | uuid | Optional; references `asset_type.id` |
+| `currency_id` | uuid | Optional; references `currency.id` |
+
+### `currency`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | uuid | Primary key; default `gen_random_uuid()` |
+| `currency` | text | Required currency code, such as `JPY` or `USD` |
+| `symbol` | text | Optional currency symbol |
+
+Current allowed rows:
+
+- `AUD`
+- `CAD`
+- `CHF`
+- `CNY`
+- `EUR`
+- `GBP`
+- `HKD`
+- `JPY`
+- `KRW`
+- `SGD`
+- `USD`
+
+### `asset_type`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | uuid | Primary key; default `gen_random_uuid()` |
+| `asset_type` | text | Required asset type |
+
+Current allowed rows:
+
+- `bond`
+- `cash`
+- `crypto`
+- `etf`
+- `fund`
+- `reit`
+- `stock`
+
+### `transaction_type`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | uuid | Primary key; default `gen_random_uuid()` |
+| `transaction_type` | character varying | Required transaction type |
+
+Current allowed rows:
+
+- `buy`
+- `sell`
 
 ### `asset_data_history`
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `id` | uuid | Primary key |
-| `asset_id` | uuid | References `asset_master.id` |
-| `price_date` | date | Market price date |
-| `close_price` | numeric | Historical close price |
+| `id` | uuid | Primary key; default `gen_random_uuid()` |
+| `asset_id` | uuid | Required; references `asset_master.id` |
+| `price_date` | date | Required market price date |
+| `close_price` | numeric | Required historical close price |
 
 ### `holdings`
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `id` | uuid | Primary key |
-| `portfolio_id` | uuid | References `portfolio.id` |
-| `asset_id` | uuid | References `asset_master.id` |
-| `quantity` | numeric | Current holding quantity |
-| `average_cost` | numeric | Average purchase cost |
-| `updated_at` | timestamp with time zone | Updated timestamp |
+| `id` | uuid | Primary key; default `gen_random_uuid()` |
+| `portfolio_id` | uuid | Required; references `portfolio.id` |
+| `asset_id` | uuid | Required; references `asset_master.id` |
+| `quantity` | numeric | Required current holding quantity; default `0` |
+| `average_cost` | numeric | Optional average purchase cost |
+| `updated_at` | timestamp with time zone | Required; default `now()` |
 
 ### `transactions`
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `id` | uuid | Primary key |
-| `asset_id` | uuid | References `asset_master.id` |
-| `holding_id` | uuid | References `holdings.id` |
-| `transaction_type` | text | `buy` or `sell` |
-| `trade_date` | date | Trade date |
-| `quantity` | numeric | Transaction quantity |
-| `price` | numeric | Transaction price |
-| `fees` | numeric | Transaction fees |
-| `created_at` | timestamp with time zone | Created timestamp |
+| `id` | uuid | Primary key; default `gen_random_uuid()` |
+| `holding_id` | uuid | Required; references `holdings.id` |
+| `transaction_type_id` | uuid | Required; references `transaction_type.id` |
+| `trade_date` | date | Required trade date |
+| `quantity` | numeric | Required transaction quantity |
+| `price` | numeric | Required transaction price |
+| `fees` | numeric | Required transaction fees; default `0` |
+| `created_at` | timestamp with time zone | Required; default `now()` |
 
 Foreign keys:
 
 - `portfolio.user_id` -> `users.id`
+- `asset_master.asset_type_id` -> `asset_type.id`
+- `asset_master.currency_id` -> `currency.id`
 - `holdings.portfolio_id` -> `portfolio.id`
 - `holdings.asset_id` -> `asset_master.id`
 - `transactions.holding_id` -> `holdings.id`
-- `transactions.asset_id` -> `asset_master.id`
+- `transactions.transaction_type_id` -> `transaction_type.id`
 - `asset_data_history.asset_id` -> `asset_master.id`
 
 Database behavior notes:
@@ -402,7 +461,13 @@ Database behavior notes:
   `holdings -> portfolio -> users`.
 - Do not add `portfolio_id` or `user_id` to `transactions`; get ownership
   through `transactions -> holdings -> portfolio`.
-- Do not add `ticker`; use existing `asset_master.symbol`.
+- Do not add `asset_id` to `transactions`; get the asset through
+  `transactions -> holdings -> asset_master`.
+- Use `asset_master.ticker` for Yahoo Finance lookup.
+- Use `asset_master.currency_id -> currency.id` for currency validation.
+- Use `asset_master.asset_type_id -> asset_type.id` for asset type validation.
+- Use `transactions.transaction_type_id -> transaction_type.id` for buy/sell
+  validation.
 - Do not store `current_price` in `holdings`.
 - Portfolio summary should not claim `cash_balance` comes from Supabase because
   the current schema has no cash balance column/table.
@@ -411,11 +476,13 @@ Database behavior notes:
 
 1. For transaction create, use path `portfolio_id` and body `asset_id` to find
    or create a matching `holdings` row.
-2. Insert the transaction row with `asset_id`, `holding_id`,
-   `transaction_type`, `trade_date`, `quantity`, `price`, and `fees`.
-3. For `buy`, increase `holdings.quantity` and update `holdings.average_cost`.
-4. For `sell`, decrease `holdings.quantity`.
-5. Reject a sell request if the requested quantity is larger than the current
+2. Resolve body `transaction_type` (`buy` / `sell`) to
+   `transaction_type.id`.
+3. Insert the transaction row with `holding_id`, `transaction_type_id`,
+   `trade_date`, `quantity`, `price`, and `fees`.
+4. For `buy`, increase `holdings.quantity` and update `holdings.average_cost`.
+5. For `sell`, decrease `holdings.quantity`.
+6. Reject a sell request if the requested quantity is larger than the current
    holding.
 
 ## Run Locally
