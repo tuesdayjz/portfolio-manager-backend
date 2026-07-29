@@ -23,10 +23,11 @@ Supabase Auth for password storage and token issuing.
   - `transactions`
 - Supabase Auth stores login credentials and issues access tokens.
 - Do not store passwords in `public.users`.
-- Yahoo Finance provides market data by `asset_master.symbol`.
+- Yahoo Finance uses the API field `ticker`.
+- Supabase stores ticker values in `asset_master.ticker`.
 - `asset_data_history.close_price` can store historical market close prices.
-- A background job can periodically refresh many symbols:
-  - read active `asset_master.symbol` values from Supabase
+- A background job can periodically refresh many tickers:
+  - read active ticker values from `asset_master.ticker` in Supabase
   - fetch prices from Yahoo Finance
   - write refreshed prices to `asset_data_history` or a future market snapshot area
   - do not write current market prices into `holdings`
@@ -239,15 +240,17 @@ Behavior:
 
 - Reconstructs historical holding quantity from `transactions`.
 - Uses `asset_data_history.close_price` by date for market value.
-- Uses `asset_master.symbol` as the Yahoo Finance symbol.
+- Uses API field `ticker` as the Yahoo Finance ticker.
+- Maps `ticker` to Supabase `asset_master.ticker`.
 - Does not require any Supabase schema change.
 
 ### Assets
 
 `GET /assets/{asset_id}/`
 
-Returns one asset master record. The response includes `symbol`, which connects
-the asset to Yahoo Finance market data.
+Returns one asset master record. The response includes `ticker`, which connects
+the asset to Yahoo Finance market data. In Supabase this value is stored in
+`asset_master.ticker`.
 
 This endpoint does not return private user-owned values like quantity or
 average cost. Those values belong to `GET /portfolios/{portfolio_id}/holdings`.
@@ -255,7 +258,7 @@ average cost. Those values belong to `GET /portfolios/{portfolio_id}/holdings`.
 `GET /assets/{asset_id}/price-history`
 
 Returns mock historical OHLCV price data. Future behavior uses the asset
-`symbol` to fetch Yahoo Finance history or reads cached close prices from
+`ticker` to fetch Yahoo Finance history or reads cached close prices from
 `asset_data_history`.
 
 ### Transactions
@@ -287,7 +290,7 @@ Supports filters:
 Future extensible query options:
 
 - `transaction_type`: filter by `buy` or `sell`
-- `symbol`: filter transactions after joining `asset_master`
+- `ticker`: filter transactions after joining `asset_master`
 - `limit` and `offset`: support pagination
 - `sort_by` and `sort_order`: support sorting by date, quantity, price, or fees
 
@@ -395,7 +398,7 @@ Auth notes:
 | Column | Type | Notes |
 | --- | --- | --- |
 | `id` | uuid | Primary key; API name is `asset_id` |
-| `symbol` | text | Yahoo Finance symbol, such as `AAPL` or `7203.T` |
+| `ticker` | text | Yahoo Finance ticker, such as `AAPL` or `7203.T` |
 | `name` | text | Asset name |
 | `asset_type` | text | Example: `stock` |
 | `currency` | character | Asset currency |
@@ -450,7 +453,7 @@ Database behavior notes:
   `holdings -> portfolio -> users`.
 - Do not add `portfolio_id` or `user_id` to `transactions`; get ownership
   through `transactions -> holdings -> portfolio`.
-- Do not add `ticker`; use existing `asset_master.symbol`.
+- API and Supabase both use `ticker`.
 - Do not store `current_price` in `holdings`.
 - Portfolio summary should not claim `cash_balance` comes from Supabase because
   the current schema has no cash balance column/table.

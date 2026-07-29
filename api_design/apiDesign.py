@@ -91,7 +91,11 @@ class Asset(BaseModel):
     portfolio_id: int = Field(..., ge=1, examples=[1])
     type: str = Field(..., max_length=20, description="Asset type", examples=["stock"])
     name: str = Field(..., description="Asset name", examples=["Toyota Motor Corp."])
-    symbol: str = Field(..., description="Yahoo Finance symbol", examples=["7203.T"])
+    ticker: str = Field(
+        ...,
+        description="Yahoo Finance ticker; maps to Supabase asset_master.ticker",
+        examples=["7203.T"],
+    )
     quantity: float = Field(
         ...,
         ge=0,
@@ -112,7 +116,11 @@ class AssetInfo(BaseModel):
     asset_id: int = Field(..., ge=1, description="Asset ID", examples=[1])
     type: str = Field(..., max_length=20, description="Asset type", examples=["stock"])
     name: str = Field(..., description="Asset name", examples=["Toyota Motor Corp."])
-    symbol: str = Field(..., description="Yahoo Finance symbol", examples=["7203.T"])
+    ticker: str = Field(
+        ...,
+        description="Yahoo Finance ticker; maps to Supabase asset_master.ticker",
+        examples=["7203.T"],
+    )
     currency: str = Field(..., description="通貨", examples=["JPY"])
 
 
@@ -120,7 +128,11 @@ class Holding(BaseModel):
     user_id: int = Field(..., ge=1, examples=[101])
     portfolio_id: int = Field(..., ge=1, examples=[1])
     asset_id: int = Field(..., ge=1, description="Asset ID", examples=[1])
-    symbol: str = Field(..., description="Yahoo Finance symbol", examples=["7203.T"])
+    ticker: str = Field(
+        ...,
+        description="Yahoo Finance ticker; maps to Supabase asset_master.ticker",
+        examples=["7203.T"],
+    )
     name: str = Field(..., description="Asset name", examples=["Toyota Motor Corp."])
     quantity: float = Field(..., ge=0, description="Current holding quantity", examples=[8.5])
     average_purchase_price: float = Field(..., ge=0, description="平均取得単価", examples=[1095.80])
@@ -230,7 +242,7 @@ assets: Dict[int, Asset] = {
         portfolio_id=1,
         type="stock",
         name="Toyota Motor Corp.",
-        symbol="7203.T",
+        ticker="7203.T",
         quantity=8.5,
         purchase_price=1095.80,
         current_price=2980.50,
@@ -242,7 +254,7 @@ assets: Dict[int, Asset] = {
         portfolio_id=1,
         type="stock",
         name="Apple Inc.",
-        symbol="AAPL",
+        ticker="AAPL",
         quantity=3.0,
         purchase_price=28500.00,
         current_price=33200.00,
@@ -682,7 +694,7 @@ def fetch_asset(
         asset_id=asset.asset_id,
         type=asset.type,
         name=asset.name,
-        symbol=asset.symbol,
+        ticker=asset.ticker,
         currency=asset.currency,
     )
 
@@ -719,7 +731,7 @@ def fetch_holdings(
             user_id=asset.user_id,
             portfolio_id=asset.portfolio_id,
             asset_id=asset.asset_id,
-            symbol=asset.symbol,
+            ticker=asset.ticker,
             name=asset.name,
             quantity=asset.quantity,
             average_purchase_price=asset.purchase_price,
