@@ -11,31 +11,42 @@ app = FastAPI(
     title="Portfolio Manager API spec",
     version="1.0.0",
     openapi_tags=[
-        {"name": "accounts", "description": "口座関連（口座、保有残高、評価額、資産配分）"},
+        {"name": "portfolio", "description": "ポートフォリオ関連"},
         {"name": "assets", "description": "資産関連（資産情報、Yahoo Finance価格）"},
         {"name": "transactions", "description": "取引履歴関連"},
     ],
 )
 
 
-class AccountSummary(BaseModel):
+class PortfolioSummary(BaseModel):
     portfolio_id: int = Field(..., examples=[1])
     user_id: int = Field(..., examples=[101])
     currency: str = Field(..., examples=["JPY"])
-    cash_balance: float = Field(..., ge=0, examples=[1250000])
+    cash_balance: float = Field(
+        ...,
+        ge=0,
+        description="Mock-only cash value; current Supabase schema has no cash balance column",
+        examples=[1250000],
+    )
     total_purchase_value: float = Field(..., ge=0, examples=[3901250])
     total_market_value: float = Field(..., ge=0, examples=[4220000])
     total_asset_value: float = Field(..., ge=0, examples=[5470000])
     unrealized_gain_loss: float = Field(..., examples=[318750])
 
 
-class AccountCreate(BaseModel):
+class PortfolioCreate(BaseModel):
     user_id: int = Field(..., ge=1, examples=[101])
+    name: str = Field(..., examples=["Main Portfolio"])
     currency: str = Field(..., examples=["JPY"])
-    cash_balance: float = Field(0, ge=0, examples=[1000000])
+    cash_balance: float = Field(
+        0,
+        ge=0,
+        description="Mock-only cash value; current Supabase schema has no cash balance column",
+        examples=[1000000],
+    )
 
 
-class Account(AccountCreate):
+class Portfolio(PortfolioCreate):
     portfolio_id: int = Field(..., ge=1, examples=[1])
 
 
@@ -87,9 +98,7 @@ class Holding(BaseModel):
     currency: str = Field(..., description="通貨", examples=["JPY"])
 
 
-class TransactionCreate(BaseModel):
-    user_id: int = Field(..., ge=1, examples=[101])
-    portfolio_id: int = Field(..., ge=1, examples=[1])
+class TransactionItem(BaseModel):
     asset_id: int = Field(..., ge=1, examples=[1])
     transaction_type: Literal["buy", "sell"] = Field(..., examples=["buy"])
     quantity: float = Field(..., gt=0, examples=[5.4])
@@ -98,8 +107,18 @@ class TransactionCreate(BaseModel):
     date: dt.datetime = Field(..., examples=["2026-05-26T18:00:00"])
 
 
+class TransactionCreate(TransactionItem):
+    user_id: int = Field(..., ge=1, examples=[101])
+
+
 class Transaction(TransactionCreate):
+    portfolio_id: int = Field(..., ge=1, examples=[1])
     transaction_id: int = Field(..., ge=1, examples=[1])
+
+
+class TransactionBatchCreate(BaseModel):
+    user_id: int = Field(..., ge=1, examples=[101])
+    transactions: List[TransactionItem] = Field(..., min_length=1)
 
 
 class PriceHistoryItem(BaseModel):
@@ -123,10 +142,26 @@ class PortfolioAllocation(BaseModel):
     by_asset: List[AllocationItem]
 
 
-accounts = {
+class PerformanceGraphPoint(BaseModel):
+    date: dt.date = Field(..., examples=["2026-07-28"])
+    total_purchase_value: float = Field(..., ge=0, examples=[3901250])
+    total_market_value: float = Field(..., ge=0, examples=[4220000])
+    unrealized_gain_loss: float = Field(..., examples=[318750])
+
+
+class PerformanceGraph(BaseModel):
+    user_id: int = Field(..., ge=1, examples=[101])
+    portfolio_id: int = Field(..., ge=1, examples=[1])
+    currency: str = Field(..., examples=["JPY"])
+    interval: Literal["1d", "1wk", "1mo"] = Field(..., examples=["1d"])
+    points: List[PerformanceGraphPoint]
+
+
+portfolios = {
     1: {
         "portfolio_id": 1,
         "user_id": 101,
+        "name": "Main Portfolio",
         "currency": "JPY",
         "cash_balance": 1250000.0,
     }
@@ -182,6 +217,28 @@ transactions: List[Transaction] = [
         fees=0.0,
         date="2026-06-10T09:30:00",
     ),
+    Transaction(
+        transaction_id=3,
+        user_id=101,
+        portfolio_id=1,
+        asset_id=1,
+        transaction_type="buy",
+        quantity=4.1,
+        price=1095.80,
+        fees=0.0,
+        date="2026-06-20T10:00:00",
+    ),
+    Transaction(
+        transaction_id=4,
+        user_id=101,
+        portfolio_id=1,
+        asset_id=2,
+        transaction_type="buy",
+        quantity=3.0,
+        price=28500.00,
+        fees=0.0,
+        date="2026-06-20T10:05:00",
+    ),
 ]
 
 
@@ -222,47 +279,207 @@ def make_allocation(items: Dict[str, float], total: float) -> List[AllocationIte
     ]
 
 
+def next_graph_date(current_date: dt.date, interval: str) -> dt.date:
+    if interval == "1wk":
+        return current_date + dt.timedelta(days=7)
+    if interval == "1mo":
+        month = current_date.month + 1
+        year = current_date.year + (month - 1) // 12
+        month = ((month - 1) % 12) + 1
+        day = min(current_date.day, 28)
+        return dt.date(year, month, day)
+    return current_date + dt.timedelta(days=1)
+
+
+def mock_market_price(asset: Asset, graph_date: dt.date) -> float:
+    base_date = dt.date(2026, 7, 28)
+    days_from_base = (graph_date - base_date).days
+    return round(asset.current_price * (1 + days_from_base * 0.002), 2)
+
+
+def calculate_graph_values(
+    user_id: int,
+    portfolio_id: int,
+    graph_date: dt.date,
+) -> Dict[str, float]:
+    holding_values: Dict[int, Dict[str, float]] = {}
+    relevant_transactions = sorted(
+        [
+            transaction
+            for transaction in transactions
+            if transaction.user_id == user_id
+            and transaction.portfolio_id == portfolio_id
+            and transaction.date.date() <= graph_date
+        ],
+        key=lambda transaction: transaction.date,
+    )
+
+    for transaction in relevant_transactions:
+        holding = holding_values.setdefault(
+            transaction.asset_id,
+            {"quantity": 0.0, "purchase_value": 0.0},
+        )
+        if transaction.transaction_type == "buy":
+            holding["quantity"] += transaction.quantity
+            holding["purchase_value"] += transaction.quantity * transaction.price + transaction.fees
+        elif holding["quantity"] > 0:
+            average_cost = holding["purchase_value"] / holding["quantity"]
+            sell_quantity = min(transaction.quantity, holding["quantity"])
+            holding["quantity"] -= sell_quantity
+            holding["purchase_value"] -= average_cost * sell_quantity
+
+    total_purchase_value = 0.0
+    total_market_value = 0.0
+    for asset_id, holding in holding_values.items():
+        if holding["quantity"] <= 0:
+            continue
+        asset = assets.get(asset_id)
+        if asset is None:
+            continue
+        total_purchase_value += holding["purchase_value"]
+        total_market_value += holding["quantity"] * mock_market_price(asset, graph_date)
+
+    return {
+        "total_purchase_value": round(total_purchase_value, 2),
+        "total_market_value": round(total_market_value, 2),
+        "unrealized_gain_loss": round(total_market_value - total_purchase_value, 2),
+    }
+
+
+def calculate_post_transaction_asset(
+    asset: Asset,
+    portfolio_id: int,
+    request: TransactionCreate,
+) -> Asset:
+    if asset.user_id != request.user_id or asset.portfolio_id != portfolio_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Asset does not belong to the specified user and portfolio",
+        )
+    if request.transaction_type == "sell" and request.quantity > asset.quantity:
+        raise HTTPException(status_code=400, detail="Cannot sell more than current holding")
+
+    updated_asset = asset.model_copy(deep=True)
+    if request.transaction_type == "buy":
+        new_quantity = updated_asset.quantity + request.quantity
+        new_purchase_value = (
+            updated_asset.quantity * updated_asset.purchase_price
+            + request.quantity * request.price
+            + request.fees
+        )
+        updated_asset.quantity = round(new_quantity, 6)
+        updated_asset.purchase_price = round(new_purchase_value / new_quantity, 2)
+    else:
+        updated_asset.quantity = round(updated_asset.quantity - request.quantity, 6)
+    return updated_asset
+
+
+def build_transaction_request(user_id: int, transaction_item: TransactionItem) -> TransactionCreate:
+    return TransactionCreate(user_id=user_id, **transaction_item.model_dump())
+
+
+def apply_transaction(portfolio_id: int, request: TransactionCreate) -> Transaction:
+    asset = get_asset_or_404(request.asset_id)
+    assets[request.asset_id] = calculate_post_transaction_asset(asset, portfolio_id, request)
+    transaction = Transaction(
+        transaction_id=len(transactions) + 1,
+        portfolio_id=portfolio_id,
+        **request.model_dump(),
+    )
+    transactions.append(transaction)
+    return transaction
+
+
 @app.get(
-    "/accounts/{portfolio_id}/summary",
-    response_model=AccountSummary,
-    responses={404: {"description": "The specified account does not exist"}},
-    tags=["accounts"],
-    summary="API to fetch account summary",
-    description="口座サマリーを取得する",
+    "/portfolios/{portfolio_id}/summary",
+    response_model=PortfolioSummary,
+    responses={404: {"description": "The specified portfolio does not exist"}},
+    tags=["portfolio"],
+    summary="API to fetch portfolio summary",
+    description="ポートフォリオサマリーを取得する",
 )
-def fetch_account_summary(
+def fetch_portfolio_summary(
     portfolio_id: int = Path(..., ge=1, description="Portfolio ID", examples=[1]),
+    user_id: int = Query(..., ge=1, description="User ID", examples=[101]),
 ):
-    account = accounts.get(portfolio_id)
-    if account is None:
-        raise HTTPException(status_code=404, detail="The specified account does not exist")
+    portfolio = portfolios.get(portfolio_id)
+    if portfolio is None or portfolio["user_id"] != user_id:
+        raise HTTPException(status_code=404, detail="The specified portfolio does not exist")
 
     values = calculate_values(portfolio_assets(portfolio_id=portfolio_id))
-    return AccountSummary(
-        **account,
+    return PortfolioSummary(
+        **portfolio,
         **values,
-        total_asset_value=round(account["cash_balance"] + values["total_market_value"], 2),
+        total_asset_value=round(portfolio["cash_balance"] + values["total_market_value"], 2),
+    )
+
+
+@app.get(
+    "/portfolios/{portfolio_id}/performance",
+    response_model=PerformanceGraph,
+    responses={404: {"description": "The specified portfolio does not exist"}},
+    tags=["portfolio"],
+    summary="API to fetch portfolio performance",
+    description=(
+        "ポートフォリオ推移グラフを取得する。"
+        "取引履歴から日付ごとの保有残高を復元し、asset_data_historyまたはYahoo Financeの価格データで評価額と含み損益を計算する想定。"
+    ),
+)
+def fetch_portfolio_performance(
+    portfolio_id: int = Path(..., ge=1, description="Portfolio ID", examples=[1]),
+    user_id: int = Query(..., ge=1, description="User ID", examples=[101]),
+    start_date: Optional[dt.date] = Query(default=None, examples=["2026-07-26"]),
+    end_date: Optional[dt.date] = Query(default=None, examples=["2026-07-28"]),
+    interval: Literal["1d", "1wk", "1mo"] = Query(default="1d", examples=["1d"]),
+):
+    portfolio = portfolios.get(portfolio_id)
+    if portfolio is None or portfolio["user_id"] != user_id:
+        raise HTTPException(status_code=404, detail="The specified portfolio does not exist")
+
+    graph_start_date = start_date or dt.date(2026, 7, 26)
+    graph_end_date = end_date or dt.date(2026, 7, 28)
+    if graph_start_date > graph_end_date:
+        raise HTTPException(status_code=400, detail="start_date must be before or equal to end_date")
+
+    points = []
+    current_date = graph_start_date
+    while current_date <= graph_end_date:
+        points.append(
+            PerformanceGraphPoint(
+                date=current_date,
+                **calculate_graph_values(user_id, portfolio_id, current_date),
+            )
+        )
+        current_date = next_graph_date(current_date, interval)
+
+    return PerformanceGraph(
+        user_id=user_id,
+        portfolio_id=portfolio_id,
+        currency=portfolio["currency"],
+        interval=interval,
+        points=points,
     )
 
 
 @app.post(
-    "/accounts/",
-    response_model=Account,
+    "/portfolios/",
+    response_model=Portfolio,
     status_code=201,
-    tags=["accounts"],
-    summary="API to create account",
-    description="口座を作成する",
+    tags=["portfolio"],
+    summary="API to create portfolio",
+    description="ポートフォリオを作成する",
 )
-def create_account(request: AccountCreate):
-    portfolio_id = max(accounts.keys(), default=0) + 1
-    account = {
+def create_portfolio(request: PortfolioCreate):
+    portfolio_id = max(portfolios.keys(), default=0) + 1
+    portfolio = {
         "portfolio_id": portfolio_id,
         "user_id": request.user_id,
+        "name": request.name,
         "currency": request.currency,
         "cash_balance": request.cash_balance,
     }
-    accounts[portfolio_id] = account
-    return account
+    portfolios[portfolio_id] = portfolio
+    return portfolio
 
 
 @app.get(
@@ -287,9 +504,9 @@ def fetch_asset(
 
 
 @app.get(
-    "/portfolio/holdings",
+    "/portfolios/{portfolio_id}/holdings",
     response_model=List[Holding],
-    tags=["accounts"],
+    tags=["portfolio"],
     summary="API to fetch holdings",
     description=(
         "保有残高一覧を取得する。1つのポートフォリオに含まれる複数の資産を返す。"
@@ -297,10 +514,14 @@ def fetch_asset(
     ),
 )
 def fetch_holdings(
+    portfolio_id: int = Path(..., ge=1, description="Portfolio ID", examples=[1]),
     user_id: int = Query(..., ge=1, description="User ID", examples=[101]),
-    portfolio_id: int = Query(..., ge=1, description="Portfolio ID", examples=[1]),
     asset_id: Optional[int] = Query(default=None),
 ):
+    portfolio = portfolios.get(portfolio_id)
+    if portfolio is None or portfolio["user_id"] != user_id:
+        raise HTTPException(status_code=404, detail="The specified portfolio does not exist")
+
     filtered_assets = list(assets.values())
     filtered_assets = [asset for asset in filtered_assets if asset.user_id == user_id]
     filtered_assets = [asset for asset in filtered_assets if asset.portfolio_id == portfolio_id]
@@ -324,19 +545,23 @@ def fetch_holdings(
 
 
 @app.get(
-    "/transactions/",
+    "/portfolios/{portfolio_id}/transactions",
     response_model=List[Transaction],
     tags=["transactions"],
     summary="API to fetch transactions",
     description="取引履歴を取得する",
 )
 def fetch_transactions(
+    portfolio_id: int = Path(..., ge=1, description="Portfolio ID", examples=[1]),
     user_id: int = Query(..., ge=1, description="User ID", examples=[101]),
-    portfolio_id: int = Query(..., ge=1, description="Portfolio ID", examples=[1]),
     asset_id: Optional[int] = Query(default=None),
     start_date: Optional[dt.date] = Query(default=None),
     end_date: Optional[dt.date] = Query(default=None),
 ):
+    portfolio = portfolios.get(portfolio_id)
+    if portfolio is None or portfolio["user_id"] != user_id:
+        raise HTTPException(status_code=404, detail="The specified portfolio does not exist")
+
     filtered_transactions = transactions
     filtered_transactions = [
         transaction
@@ -370,7 +595,7 @@ def fetch_transactions(
 
 
 @app.post(
-    "/transactions/",
+    "/portfolios/{portfolio_id}/transactions",
     response_model=Transaction,
     status_code=201,
     responses={400: {"description": "Cannot sell more than current holding"}},
@@ -378,29 +603,55 @@ def fetch_transactions(
     summary="API to record transaction",
     description="取引を登録し、保有残高（holdings）を更新する",
 )
-def record_transaction(request: TransactionCreate):
-    asset = get_asset_or_404(request.asset_id)
-    if request.transaction_type == "sell" and request.quantity > asset.quantity:
-        raise HTTPException(status_code=400, detail="Cannot sell more than current holding")
+def record_transaction(
+    portfolio_id: int = Path(..., ge=1, description="Portfolio ID", examples=[1]),
+    request: TransactionCreate = ...,
+):
+    portfolio = portfolios.get(portfolio_id)
+    if portfolio is None or portfolio["user_id"] != request.user_id:
+        raise HTTPException(status_code=404, detail="The specified portfolio does not exist")
+    return apply_transaction(portfolio_id, request)
 
-    if request.transaction_type == "buy":
-        new_quantity = asset.quantity + request.quantity
-        new_purchase_value = (
-            asset.quantity * asset.purchase_price
-            + request.quantity * request.price
-            + request.fees
+
+@app.post(
+    "/portfolios/{portfolio_id}/transactions/batch",
+    response_model=List[Transaction],
+    status_code=201,
+    responses={400: {"description": "One or more transactions are invalid"}},
+    tags=["transactions"],
+    summary="API to record multiple transactions",
+    description=(
+        "複数の取引を一括登録し、各取引ごとに保有残高（holdings）を更新する。"
+        "ネットワーク通信回数を減らし、データベースの一括登録・一括更新効率を高める。"
+    ),
+)
+def record_transaction_batch(
+    portfolio_id: int = Path(..., ge=1, description="Portfolio ID", examples=[1]),
+    request: TransactionBatchCreate = ...,
+):
+    portfolio = portfolios.get(portfolio_id)
+    if portfolio is None or portfolio["user_id"] != request.user_id:
+        raise HTTPException(status_code=404, detail="The specified portfolio does not exist")
+
+    simulated_assets = {asset_id: asset.model_copy(deep=True) for asset_id, asset in assets.items()}
+    transaction_requests = [
+        build_transaction_request(request.user_id, transaction_item)
+        for transaction_item in request.transactions
+    ]
+    for transaction_request in transaction_requests:
+        asset = simulated_assets.get(transaction_request.asset_id)
+        if asset is None:
+            raise HTTPException(status_code=404, detail="The specified asset does not exist")
+        simulated_assets[transaction_request.asset_id] = calculate_post_transaction_asset(
+            asset,
+            portfolio_id,
+            transaction_request,
         )
-        asset.quantity = round(new_quantity, 6)
-        asset.purchase_price = round(new_purchase_value / new_quantity, 2)
-    else:
-        asset.quantity = round(asset.quantity - request.quantity, 6)
 
-    transaction = Transaction(
-        transaction_id=len(transactions) + 1,
-        **request.model_dump(),
-    )
-    transactions.append(transaction)
-    return transaction
+    created_transactions = []
+    for transaction_request in transaction_requests:
+        created_transactions.append(apply_transaction(portfolio_id, transaction_request))
+    return created_transactions
 
 
 @app.get(
@@ -447,16 +698,25 @@ def fetch_price_history(
 
 
 @app.get(
-    "/portfolio/allocation",
+    "/portfolios/{portfolio_id}/allocation",
     response_model=PortfolioAllocation,
-    tags=["accounts"],
+    tags=["portfolio"],
     summary="API to fetch portfolio allocation",
     description="資産配分を取得する。評価額計算の市場価格はYahoo Financeから取得する想定。",
 )
 def fetch_portfolio_allocation(
-    portfolio_id: int = Query(..., ge=1, description="Portfolio ID", examples=[1]),
+    portfolio_id: int = Path(..., ge=1, description="Portfolio ID", examples=[1]),
+    user_id: int = Query(..., ge=1, description="User ID", examples=[101]),
 ):
-    filtered_assets = portfolio_assets(portfolio_id=portfolio_id)
+    portfolio = portfolios.get(portfolio_id)
+    if portfolio is None or portfolio["user_id"] != user_id:
+        raise HTTPException(status_code=404, detail="The specified portfolio does not exist")
+
+    filtered_assets = [
+        asset
+        for asset in portfolio_assets(portfolio_id=portfolio_id)
+        if asset.user_id == user_id
+    ]
     market_values = {
         asset.asset_id: asset.quantity * asset.current_price for asset in filtered_assets
     }

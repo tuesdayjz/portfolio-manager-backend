@@ -3,64 +3,61 @@
 ## Purpose
 
 This backend is currently a Swagger/mock API design for a portfolio management
-application. It lets users create accounts, view assets, record buy/sell
-transactions, inspect mock market prices, and review portfolio valuation.
+application. It lets users create portfolios, view holdings, record buy/sell
+transactions, inspect market prices, and review portfolio valuation.
 
-This draft does not place real brokerage orders. Buy and sell actions record
-portfolio transactions and update holdings only.
+This draft does not place real brokerage orders. Buy and sell actions only
+record portfolio transactions and update current holdings.
 
 ## Data Source Plan
 
-- Supabase will store user portfolio data:
-  - accounts
-  - assets
-  - holdings
-  - transactions
-  - cash balances
-- The API can calculate return/gain values from stored transactions and assets:
-  - realized gain
-  - unrealized gain
-  - total return
-  - return rate
-- Yahoo Finance will provide market data:
-  - latest price
-  - historical open/high/low/close/volume data
-- Each asset should store a Yahoo-compatible `symbol`.
-  - Examples: `AAPL`, `MSFT`, `7203.T`
+- Supabase stores private portfolio data:
+  - `users`
+  - `portfolio`
+  - `asset_master`
+  - `asset_data_history`
+  - `holdings`
+  - `transactions`
+- Yahoo Finance provides market data by `asset_master.symbol`.
+- `asset_data_history.close_price` can store historical market close prices.
+- A background job can periodically refresh many symbols:
+  - read active `asset_master.symbol` values from Supabase
+  - fetch prices from Yahoo Finance
+  - write refreshed prices to `asset_data_history` or a future market snapshot area
+  - do not write current market prices into `holdings`
 
 ## Data Access Rules
 
 - User-owned portfolio data must be filtered by `user_id`.
-  - Examples: holdings, transactions, portfolio-specific summaries.
-- `portfolio_id` is the Supabase portfolio identifier. It replaces the earlier
-  draft wording of `account_id`.
-- Market price data is public market data.
-  - Asset price endpoints use `asset_id` to find the asset `symbol`.
-  - Yahoo Finance uses that `symbol` to fetch latest and historical prices.
-  - They do not require `user_id` because Yahoo Finance prices are not private
-    user data.
+- During mock/development, private `GET` APIs require `user_id` as a query
+  parameter.
+- `portfolio_id` is required in the path for private portfolio data.
+- In production, the backend can get `user_id` from login/auth instead of query
+  parameters.
+- Public asset/market data does not require `user_id`.
 
 ## Swagger Sections
 
 | Tag | Japanese label | Purpose |
 | --- | --- | --- |
-| `accounts` | 口座関連 | Account creation, account summary, holdings, valuation, and allocation |
+| `portfolio` | ポートフォリオ関連 | Portfolio creation, summary, holdings, allocation, and performance |
 | `assets` | 資産関連 | Asset master data and Yahoo Finance market prices |
 | `transactions` | 取引履歴関連 | Buy/sell transaction history |
 
 ## Current Mock Endpoints
 
-### Accounts
+### Portfolio
 
-`POST /accounts/`
+`POST /portfolios/`
 
-Creates a mock account.
+Creates a mock portfolio.
 
 Request:
 
 ```json
 {
   "user_id": 202,
+  "name": "Main Portfolio",
   "currency": "JPY",
   "cash_balance": 500000
 }
@@ -71,19 +68,99 @@ Response:
 ```json
 {
   "user_id": 202,
+  "name": "Main Portfolio",
   "currency": "JPY",
   "cash_balance": 500000,
   "portfolio_id": 2
 }
 ```
 
-`GET /accounts/{portfolio_id}/summary`
+`GET /portfolios/{portfolio_id}/summary`
 
-Returns cash balance, purchase value, market value, total asset value, and
-unrealized gain/loss. This is the merged account and portfolio valuation
-endpoint.
+Returns purchase value, market value, total asset value, and unrealized
+gain/loss for one portfolio.
 
-Market value uses Yahoo Finance prices, not Supabase holdings columns.
+Request:
+
+```text
+GET /portfolios/1/summary?user_id=101
+```
+
+Notes:
+
+- `user_id` is required for mock owner checking.
+- Market value uses Yahoo Finance or `asset_data_history` prices, not
+  `holdings`.
+- `cash_balance` is mock-only because the current Supabase schema has no cash
+  balance column/table.
+
+`GET /portfolios/{portfolio_id}/holdings`
+
+Returns current holdings for one portfolio. The response is an array because one
+portfolio can contain multiple assets.
+
+Request:
+
+```text
+GET /portfolios/1/holdings?user_id=101
+```
+
+Supports filters:
+
+- `user_id` required
+- `asset_id`
+
+Important data boundary:
+
+- Supabase `holdings` stores quantity and average cost.
+- `current_price` is market data from Yahoo Finance or `asset_data_history`.
+- Do not store `current_price` in `holdings`.
+
+`GET /portfolios/{portfolio_id}/allocation`
+
+Returns allocation by asset type, currency, and individual asset.
+
+Request:
+
+```text
+GET /portfolios/1/allocation?user_id=101
+```
+
+`GET /portfolios/{portfolio_id}/performance`
+
+Returns graph-ready portfolio performance points.
+
+Request:
+
+```text
+GET /portfolios/1/performance?user_id=101&start_date=2026-07-26&end_date=2026-07-28&interval=1d
+```
+
+Response:
+
+```json
+{
+  "user_id": 101,
+  "portfolio_id": 1,
+  "currency": "JPY",
+  "interval": "1d",
+  "points": [
+    {
+      "date": "2026-07-26",
+      "total_purchase_value": 94814.3,
+      "total_market_value": 124434.53,
+      "unrealized_gain_loss": 29620.23
+    }
+  ]
+}
+```
+
+Behavior:
+
+- Reconstructs historical holding quantity from `transactions`.
+- Uses `asset_data_history.close_price` by date for market value.
+- Uses `asset_master.symbol` as the Yahoo Finance symbol.
+- Does not require any Supabase schema change.
 
 ### Assets
 
@@ -92,71 +169,50 @@ Market value uses Yahoo Finance prices, not Supabase holdings columns.
 Returns one asset master record. The response includes `symbol`, which connects
 the asset to Yahoo Finance market data.
 
-This endpoint does not return user-owned values like quantity or purchase
-price. Those values belong to `GET /portfolio/holdings`.
+This endpoint does not return private user-owned values like quantity or
+average cost. Those values belong to `GET /portfolios/{portfolio_id}/holdings`.
 
 `GET /assets/{asset_id}/price-history`
 
 Returns mock historical OHLCV price data. Future behavior uses the asset
-`symbol` to fetch Yahoo Finance history.
-
-### Accounts Portfolio APIs
-
-`GET /portfolio/holdings`
-
-Returns user-owned holdings from the existing Supabase `public.holdings` table
-concept. The response is an array because one portfolio can contain multiple
-assets. `user_id` is required because holdings are private user data and users
-should only see their own holdings. Supports filters:
-
-- `user_id` required
-- `portfolio_id` required
-- `asset_id`
-
-Important data boundary:
-
-- Supabase `public.holdings` stores user-owned values like quantity and average
-  purchase price.
-- `current_price` is market data from Yahoo Finance, using the asset `symbol`.
-- In this mock API, `current_price` is sample data only. In the future version,
-  the API should fetch it from Yahoo Finance at request time or from a separate
-  market price cache, not from the holdings table.
-
-`GET /portfolio/allocation`
-
-Returns allocation by:
-
-- asset type
-- currency
-- individual asset
-
-Requires:
-
-- `portfolio_id` required
+`symbol` to fetch Yahoo Finance history or reads cached close prices from
+`asset_data_history`.
 
 ### Transactions
 
-`GET /transactions/`
+`GET /portfolios/{portfolio_id}/transactions`
 
-Returns one user's transaction history. `user_id` is required so the API returns
-the transaction log for that user only. Supports filters:
+Returns one user's transaction history for one portfolio.
+
+Request:
+
+```text
+GET /portfolios/1/transactions?user_id=101
+```
+
+Supports filters:
 
 - `user_id` required
-- `portfolio_id` required
 - `asset_id`
 - `start_date`
 - `end_date`
 
-`POST /transactions/`
+Future extensible query options:
 
-Records a buy or sell transaction and updates the user's holding.
+- `transaction_type`: filter by `buy` or `sell`
+- `symbol`: filter transactions after joining `asset_master`
+- `limit` and `offset`: support pagination
+- `sort_by` and `sort_order`: support sorting by date, quantity, price, or fees
+
+`POST /portfolios/{portfolio_id}/transactions`
+
+Records one buy or sell transaction and updates the user's holding.
 
 Request:
 
 ```json
 {
   "user_id": 101,
-  "portfolio_id": 1,
   "asset_id": 1,
   "transaction_type": "buy",
   "quantity": 2,
@@ -168,84 +224,148 @@ Request:
 
 Behavior:
 
+- Uses `portfolio_id` from the path.
 - `buy` inserts one transaction and increases the matching holding quantity.
-- `buy` recalculates the holding average purchase price.
+- `buy` recalculates holding average cost.
 - `sell` inserts one transaction and decreases the matching holding quantity.
 - Selling more than the current holding returns `400`.
 
-Future Supabase behavior:
+`POST /portfolios/{portfolio_id}/transactions/batch`
 
-1. Insert the request into the existing `transactions` table.
-2. Find the matching row in the existing `public.holdings` table by
-   `user_id`, `portfolio_id`, and `asset_id`.
-3. For `buy`, increase quantity and update average purchase price.
-4. For `sell`, decrease quantity.
-5. Reject the request if a sell quantity is larger than the current holding.
+Records multiple buy/sell transactions in one request and updates holdings for
+each transaction.
 
-## Supabase Table Assumptions
+Request:
 
-Do not change the existing Supabase schema just for this mock API. The tables
-below describe the fields the API expects to read if they already exist or can
-be mapped from the current design.
+```json
+{
+  "user_id": 101,
+  "transactions": [
+    {
+      "asset_id": 1,
+      "transaction_type": "buy",
+      "quantity": 2,
+      "price": 3000,
+      "fees": 10,
+      "date": "2026-07-28T18:00:00"
+    },
+    {
+      "asset_id": 2,
+      "transaction_type": "sell",
+      "quantity": 1,
+      "price": 33200,
+      "fees": 0,
+      "date": "2026-07-28T18:05:00"
+    }
+  ]
+}
+```
 
-### `accounts`
+Purpose:
+
+- Reduces network overhead by sending many transactions in one request.
+- Improves database batch insert/update efficiency.
+- Lets the backend validate the whole batch before updating holdings.
+
+## Supabase Database Design
+
+The current Supabase schema should stay unchanged.
+
+### `users`
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `portfolio_id` | integer | Primary key |
-| `user_id` | integer | Owner |
-| `currency` | text | Example: `JPY` |
-| `cash_balance` | numeric | Portfolio cash |
+| `id` | uuid | Primary key |
+| `email` | text | User email |
+| `created_at` | timestamp with time zone | Created timestamp |
+| `updated_at` | timestamp with time zone | Updated timestamp |
 
-### `assets`
+### `portfolio`
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `asset_id` | integer | Primary key |
-| `type` | text | Example: `stock` |
+| `id` | uuid | Primary key; API name is `portfolio_id` |
+| `user_id` | uuid | Owner; references `users.id` |
+| `name` | text | Portfolio name |
+| `base_currency` | character | Portfolio base currency |
+| `created_at` | timestamp with time zone | Created timestamp |
+| `updated_at` | timestamp with time zone | Updated timestamp |
+
+### `asset_master`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | uuid | Primary key; API name is `asset_id` |
+| `symbol` | text | Yahoo Finance symbol, such as `AAPL` or `7203.T` |
 | `name` | text | Asset name |
-| `symbol` | text | Yahoo Finance symbol |
-| `currency` | text | Example: `JPY` |
+| `asset_type` | text | Example: `stock` |
+| `currency` | character | Asset currency |
+| `created_at` | timestamp with time zone | Created timestamp |
 
-### `public.holdings`
+### `asset_data_history`
 
-Use the existing Supabase `public.holdings` table. The API design assumes it can map to
-these concepts without requiring a schema redesign:
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | uuid | Primary key |
+| `asset_id` | uuid | References `asset_master.id` |
+| `price_date` | date | Market price date |
+| `close_price` | numeric | Historical close price |
 
-| Concept | Notes |
-| --- | --- |
-| user | Holding owner; required for private data access |
-| portfolio | Supabase portfolio ID |
-| asset | Related stock/asset; connects to `assets.asset_id` |
-| quantity | Current holding quantity |
-| average purchase price | Updated after buys |
+### `holdings`
 
-Do not store `current_price` in `public.holdings`. Current market prices should
-come from Yahoo Finance by using the asset `symbol`.
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | uuid | Primary key |
+| `portfolio_id` | uuid | References `portfolio.id` |
+| `asset_id` | uuid | References `asset_master.id` |
+| `quantity` | numeric | Current holding quantity |
+| `average_cost` | numeric | Average purchase cost |
+| `updated_at` | timestamp with time zone | Updated timestamp |
 
 ### `transactions`
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `transaction_id` | integer | Primary key |
-| `user_id` | integer | Owner |
-| `portfolio_id` | integer | Portfolio |
-| `asset_id` | integer | Related asset |
+| `id` | uuid | Primary key |
+| `asset_id` | uuid | References `asset_master.id` |
+| `holding_id` | uuid | References `holdings.id` |
 | `transaction_type` | text | `buy` or `sell` |
+| `trade_date` | date | Trade date |
 | `quantity` | numeric | Transaction quantity |
 | `price` | numeric | Transaction price |
 | `fees` | numeric | Transaction fees |
-| `date` | timestamp | Transaction timestamp |
+| `created_at` | timestamp with time zone | Created timestamp |
 
-## Future Calculated Values
+Foreign keys:
 
-The API can calculate these values later without adding Supabase columns or a
-separate Swagger section:
+- `portfolio.user_id` -> `users.id`
+- `holdings.portfolio_id` -> `portfolio.id`
+- `holdings.asset_id` -> `asset_master.id`
+- `transactions.holding_id` -> `holdings.id`
+- `transactions.asset_id` -> `asset_master.id`
+- `asset_data_history.asset_id` -> `asset_master.id`
 
-- `realized_gain`: profit/loss from completed sell transactions
-- `unrealized_gain`: current market value minus purchase value for held assets
-- `total_return`: realized gain plus unrealized gain
-- `return_rate`: total return divided by purchase value
+Database behavior notes:
+
+- Do not add `user_id` to `holdings`; get ownership through
+  `holdings -> portfolio -> users`.
+- Do not add `portfolio_id` or `user_id` to `transactions`; get ownership
+  through `transactions -> holdings -> portfolio`.
+- Do not add `ticker`; use existing `asset_master.symbol`.
+- Do not store `current_price` in `holdings`.
+- Portfolio summary should not claim `cash_balance` comes from Supabase because
+  the current schema has no cash balance column/table.
+
+## Future Supabase Behavior
+
+1. For transaction create, use path `portfolio_id` and body `asset_id` to find
+   or create a matching `holdings` row.
+2. Insert the transaction row with `asset_id`, `holding_id`,
+   `transaction_type`, `trade_date`, `quantity`, `price`, and `fees`.
+3. For `buy`, increase `holdings.quantity` and update `holdings.average_cost`.
+4. For `sell`, decrease `holdings.quantity`.
+5. Reject a sell request if the requested quantity is larger than the current
+   holding.
 
 ## Run Locally
 
