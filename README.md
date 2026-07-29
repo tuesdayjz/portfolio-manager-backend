@@ -14,16 +14,21 @@ python3 -m venv .venv
 cp .env.example .env
 
 export FLASK_APP=wsgi.py
-.venv/bin/flask run
+.venv/bin/flask run --port=5001
 ```
+
+> **ポートは 5001 を使う。** macOS の AirPlay レシーバーが `*:5000` を
+> 掴んでいるため、5000 番だと `localhost` が AirPlay 側に吸われて
+> `403 Forbidden`（`Server: AirTunes`）が返る。`.env` に
+> `FLASK_RUN_PORT=5001` を入れておけば `flask run` だけで済む。
 
 ### ドキュメント
 
 | URL | 内容 |
 | --- | --- |
-| http://localhost:5000/docs | Swagger UI |
-| http://localhost:5000/redoc | ReDoc |
-| http://localhost:5000/openapi.json | OpenAPI 3.0.3 仕様 |
+| http://localhost:5001/docs | Swagger UI |
+| http://localhost:5001/redoc | ReDoc |
+| http://localhost:5001/openapi.json | OpenAPI 3.0.3 仕様 |
 
 リポジトリには生成済みの [`openapi.yaml`](openapi.yaml) をコミットしてある。
 スキーマを変更したら再生成すること:

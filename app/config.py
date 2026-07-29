@@ -19,10 +19,10 @@ class BaseConfig:
     OPENAPI_VERSION = "3.0.3"
     OPENAPI_JSON_PATH = "openapi.json"
     OPENAPI_URL_PREFIX = "/"
-    # Swagger UI: http://localhost:5000/docs
+    # Swagger UI: http://localhost:5001/docs
     OPENAPI_SWAGGER_UI_PATH = "/docs"
     OPENAPI_SWAGGER_UI_URL = "https://cdn.jsdelivr.net/npm/swagger-ui-dist/"
-    # ReDoc: http://localhost:5000/redoc
+    # ReDoc: http://localhost:5001/redoc
     OPENAPI_REDOC_PATH = "/redoc"
     OPENAPI_REDOC_URL = (
         "https://cdn.jsdelivr.net/npm/redoc@next/bundles/redoc.standalone.js"
@@ -42,7 +42,8 @@ class BaseConfig:
             "contact": {"name": "Portfolio Manager Team"},
         },
         "servers": [
-            {"url": "http://localhost:5000", "description": "Local development"},
+            # macOS の AirPlay レシーバーが 5000 を占有し 403 を返すため 5001 を使う。
+            {"url": "http://localhost:5001", "description": "Local development"},
         ],
         "components": {
             "securitySchemes": {

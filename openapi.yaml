@@ -1062,7 +1062,7 @@ security:
 - ApiKeyAuth: []
 servers:
 - description: Local development
-  url: http://localhost:5000
+  url: http://localhost:5001
 tags:
 - description: 銘柄マスタ。取引を登録する前にここへ銘柄を作成する。
   name: assets
