@@ -1,0 +1,95 @@
+"""ポートフォリオエンドポイントの API 定義。
+
+パスと入出力スキーマの宣言のみ。処理は未実装。
+"""
+
+from flask.views import MethodView
+from flask_smorest import Blueprint, abort
+
+from app.schemas.holding import HoldingsPageSchema, HoldingsQuerySchema
+from app.schemas.portfolio import (
+    AllocationQuerySchema,
+    PerformanceGraphSchema,
+    PerformanceQuerySchema,
+    PortfolioAllocationSchema,
+    PortfolioCreateSchema,
+    PortfolioSchema,
+    PortfolioSummarySchema,
+)
+
+blp = Blueprint(
+    "portfolio",
+    __name__,
+    url_prefix="/api/v1/portfolios",
+    description="ポートフォリオ関連",
+)
+
+NOT_IMPLEMENTED = "未実装。API 設計のみ定義済み。"
+PORTFOLIO_NOT_FOUND = "The specified portfolio does not exist"
+
+
+@blp.route("/")
+class PortfolioCollection(MethodView):
+    @blp.arguments(PortfolioCreateSchema)
+    @blp.response(201, PortfolioSchema)
+    def post(self, payload):
+        """ポートフォリオを作成する。"""
+        abort(501, message=NOT_IMPLEMENTED)
+
+
+@blp.route("/summary")
+class PortfolioSummary(MethodView):
+    @blp.response(200, PortfolioSummarySchema)
+    @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
+    def get(self):
+        """ポートフォリオサマリーを取得する。
+
+        現金残高・評価額・損益率を返す。評価額の市場価格は
+        Yahoo Finance または `asset_data_history` から取得する想定で、
+        `holdings` には保存しない。
+        """
+        abort(501, message=NOT_IMPLEMENTED)
+
+
+@blp.route("/holdings")
+class PortfolioHoldings(MethodView):
+    @blp.arguments(HoldingsQuerySchema, location="query")
+    @blp.response(200, HoldingsPageSchema)
+    @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
+    def get(self, args):
+        """保有残高一覧を取得する。
+
+        1 つのポートフォリオに含まれる複数の資産を `items` に、フィルタ適用後の
+        全件を集計した合計行を `totals` に入れて返す。`current_price` は
+        Yahoo Finance 由来の市場価格で、Supabase holdings には保存しない。
+        """
+        abort(501, message=NOT_IMPLEMENTED)
+
+
+@blp.route("/allocation")
+class PortfolioAllocation(MethodView):
+    @blp.arguments(AllocationQuerySchema, location="query")
+    @blp.response(200, PortfolioAllocationSchema)
+    @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
+    def get(self, args):
+        """資産配分を取得する。
+
+        `group_by` で指定した 1 つの基準（資産クラス・通貨・銘柄・セクター）で
+        集計した内訳を返す。評価額計算の市場価格は Yahoo Finance から取得する想定。
+        """
+        abort(501, message=NOT_IMPLEMENTED)
+
+
+@blp.route("/performance")
+class PortfolioPerformance(MethodView):
+    @blp.arguments(PerformanceQuerySchema, location="query")
+    @blp.response(200, PerformanceGraphSchema)
+    @blp.alt_response(400, description="start_date must be before or equal to end_date")
+    @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
+    def get(self, args):
+        """ポートフォリオ推移グラフを取得する。
+
+        取引履歴から日付ごとの保有残高を復元し、`asset_data_history` または
+        Yahoo Finance の価格データで評価額と含み損益を計算する想定。
+        """
+        abort(501, message=NOT_IMPLEMENTED)
