@@ -21,9 +21,6 @@ class AssetSchema(Schema):
         required=True, validate=POSITIVE_ID,
         metadata={"description": "Asset ID", "example": 1},
     )
-    user_id = fields.Int(
-        required=True, validate=POSITIVE_ID, metadata={"example": 101}
-    )
     portfolio_id = fields.Int(
         required=True, validate=POSITIVE_ID, metadata={"example": 1}
     )
@@ -66,7 +63,7 @@ class AssetInfoSchema(Schema):
     """資産マスタ情報（レスポンス）。
 
     保有数量や取得価額のような private な値は含めない。それらは
-    `GET /portfolios/{portfolio_id}/holdings` で返す。
+    `GET /portfolios/holdings` で返す。
     """
 
     asset_id = fields.Int(

@@ -1,13 +1,13 @@
 """ポートフォリオ関連のスキーマ。"""
 
-from marshmallow import Schema, fields, validate
+from marshmallow import Schema, ValidationError, fields, validate, validates_schema
 
-from app.enums import Interval
+from app.enums import AllocationGroupBy, Interval, PerformanceRange
 from app.schemas.common import (
     NON_NEGATIVE,
     POSITIVE_ID,
+    WEIGHT,
     DateRangeQueryMixin,
-    UserIdQuerySchema,
 )
 
 _CASH_BALANCE_NOTE = (
@@ -16,11 +16,8 @@ _CASH_BALANCE_NOTE = (
 
 
 class PortfolioCreateSchema(Schema):
-    """ポートフォリオの新規作成。"""
+    """ポートフォリオの新規作成。所有者はログイン情報から解決する。"""
 
-    user_id = fields.Int(
-        required=True, validate=POSITIVE_ID, metadata={"example": 101}
-    )
     name = fields.Str(required=True, metadata={"example": "Main Portfolio"})
     currency = fields.Str(required=True, metadata={"example": "JPY"})
     cash_balance = fields.Float(
@@ -41,68 +38,175 @@ class PortfolioSummarySchema(Schema):
     """ポートフォリオサマリー。
 
     評価額は Yahoo Finance または `asset_data_history` の価格で計算する。
+    ヘッダー表示に必要な最小限の項目だけを返す。
     """
 
     portfolio_id = fields.Int(required=True, metadata={"example": 1})
-    user_id = fields.Int(required=True, metadata={"example": 101})
     currency = fields.Str(required=True, metadata={"example": "JPY"})
     cash_balance = fields.Float(
         required=True, validate=NON_NEGATIVE,
         metadata={"description": _CASH_BALANCE_NOTE, "example": 1250000},
     )
-    total_purchase_value = fields.Float(
-        required=True, validate=NON_NEGATIVE, metadata={"example": 3901250}
-    )
     total_market_value = fields.Float(
         required=True, validate=NON_NEGATIVE, metadata={"example": 4220000}
     )
-    total_asset_value = fields.Float(
-        required=True, validate=NON_NEGATIVE, metadata={"example": 5470000}
+    total_return_percent = fields.Float(
+        required=True,
+        metadata={
+            "description": "取得原価に対する損益率（％）。ヘッダーの Total Return。",
+            "example": 8.17,
+        },
     )
-    unrealized_gain_loss = fields.Float(required=True, metadata={"example": 318750})
 
 
 class AllocationItemSchema(Schema):
     """配分の 1 項目。`weight` は 0〜1 の割合。"""
 
-    name = fields.Str(required=True, metadata={"example": "stock"})
+    name = fields.Str(
+        required=True,
+        metadata={
+            "description": "集計基準ごとの区分名（資産クラス名・通貨コード・"
+            "銘柄名・セクター名）",
+            "example": "stock",
+        },
+    )
     value = fields.Float(
         required=True, validate=NON_NEGATIVE, metadata={"example": 4220000}
     )
-    weight = fields.Float(
-        required=True,
-        validate=validate.Range(min=0, max=1),
-        metadata={"example": 0.72},
+    weight = fields.Float(required=True, validate=WEIGHT, metadata={"example": 0.72})
+    holdings_count = fields.Int(
+        required=True, validate=NON_NEGATIVE,
+        metadata={"description": "この区分に含まれる保有銘柄数", "example": 12},
     )
 
 
 class PortfolioAllocationSchema(Schema):
-    """資産配分。評価額は市場価格ベース。"""
+    """資産配分（1 つの集計基準ぶん）。評価額は市場価格ベース。
 
-    by_asset_type = fields.List(fields.Nested(AllocationItemSchema), required=True)
-    by_currency = fields.List(fields.Nested(AllocationItemSchema), required=True)
-    by_asset = fields.List(fields.Nested(AllocationItemSchema), required=True)
+    どの基準で集計したかは `group_by` に入る。複数の基準を同時に描く画面
+    （Allocations の資産クラス円グラフとセクター棒グラフなど）は、
+    `group_by` を変えて複数回呼ぶ。
+    """
+
+    portfolio_id = fields.Int(
+        required=True, validate=POSITIVE_ID, metadata={"example": 1}
+    )
+    group_by = fields.Enum(
+        AllocationGroupBy, by_value=True, required=True,
+        metadata={"description": "集計基準", "example": "asset_type"},
+    )
+    currency = fields.Str(
+        required=True,
+        metadata={"description": "評価額の通貨（基準通貨）", "example": "JPY"},
+    )
+    total_value = fields.Float(
+        required=True, validate=NON_NEGATIVE,
+        metadata={
+            "description": "`items` の value 合計。ドーナツ中央の Total Value。"
+            "`group_by=sector` では株式ぶんだけの合計になる。",
+            "example": 5860000,
+        },
+    )
+    items = fields.List(
+        fields.Nested(AllocationItemSchema),
+        required=True,
+        metadata={"description": "`value` の降順"},
+    )
+    as_of = fields.DateTime(
+        required=True,
+        metadata={
+            "description": "配分の計算に使った市場価格の時刻。UI の「Last updated 5 mins ago」の元になる。",
+            "example": "2026-07-30T14:25:00",
+        },
+    )
+
+
+class AllocationTargetItemSchema(Schema):
+    """目標配分の 1 件。"""
+
+    name = fields.Str(required=True, metadata={"example": "stock"})
+    target_weight = fields.Float(
+        required=True, validate=WEIGHT, metadata={"example": 0.40}
+    )
+
+
+class AllocationTargetUpdateSchema(Schema):
+    """資産クラス別の目標配分の設定。合計が 1（100%）になることを検証する。"""
+
+    targets = fields.List(
+        fields.Nested(AllocationTargetItemSchema),
+        required=True,
+        validate=validate.Length(min=1),
+    )
+
+    @validates_schema
+    def check_targets(self, data, **kwargs):
+        targets = data.get("targets") or []
+        names = [item["name"] for item in targets]
+        if len(names) != len(set(names)):
+            raise ValidationError({"targets": ["資産クラスが重複しています。"]})
+        total = sum(item["target_weight"] for item in targets)
+        # 浮動小数の丸め誤差を許容する
+        if abs(total - 1) > 1e-6:
+            raise ValidationError(
+                {"targets": ["target_weight の合計を 1（100%）にしてください。"]}
+            )
 
 
 class PerformanceGraphPointSchema(Schema):
     """推移グラフの 1 点。"""
 
     date = fields.Date(required=True, metadata={"example": "2026-07-28"})
-    total_purchase_value = fields.Float(
-        required=True, validate=NON_NEGATIVE, metadata={"example": 3901250}
-    )
     total_market_value = fields.Float(
         required=True, validate=NON_NEGATIVE, metadata={"example": 4220000}
     )
-    unrealized_gain_loss = fields.Float(required=True, metadata={"example": 318750})
+
+
+class PerformanceChangeSchema(Schema):
+    """損益の 1 項目。金額と率をセットで返す。どちらも下落なら負。"""
+
+    amount = fields.Float(
+        required=True, metadata={"description": "損益額", "example": 149832.50}
+    )
+    percent = fields.Float(
+        required=True, metadata={"description": "損益率（％）", "example": 12.4}
+    )
+
+
+class PerformanceMetricsSchema(Schema):
+    """Performance 画面の指標カード（4 カラム）。"""
+
+    portfolio_value = fields.Float(
+        required=True, validate=NON_NEGATIVE,
+        metadata={
+            "description": "期間終了時点の評価額。現金を含む総資産額。",
+            "example": 1247832.50,
+        },
+    )
+    today = fields.Nested(
+        PerformanceChangeSchema,
+        required=True,
+        metadata={"description": "前日終値からの騰落"},
+    )
+    period_return = fields.Nested(
+        PerformanceChangeSchema,
+        required=True,
+        data_key="return",
+        metadata={
+            "description": "`range`（または start_date / end_date）で指定した"
+            "対象期間の損益"
+        },
+    )
+    total_return = fields.Nested(
+        PerformanceChangeSchema,
+        required=True,
+        metadata={"description": "運用開始来（全期間）の損益。対象期間の影響を受けない。"},
+    )
 
 
 class PerformanceGraphSchema(Schema):
     """ポートフォリオ推移グラフ。"""
 
-    user_id = fields.Int(
-        required=True, validate=POSITIVE_ID, metadata={"example": 101}
-    )
     portfolio_id = fields.Int(
         required=True, validate=POSITIVE_ID, metadata={"example": 1}
     )
@@ -110,18 +214,42 @@ class PerformanceGraphSchema(Schema):
     interval = fields.Enum(
         Interval, by_value=True, required=True, metadata={"example": "1d"}
     )
+    range = fields.Enum(
+        PerformanceRange, by_value=True, allow_none=True,
+        metadata={
+            "description": "期間セレクタで指定された値。start_date / end_date で"
+            "直接指定された場合は null。",
+            "example": "1y",
+        },
+    )
+    start_date = fields.Date(required=True, metadata={"example": "2026-01-01"})
+    end_date = fields.Date(required=True, metadata={"example": "2026-07-28"})
+    metrics = fields.Nested(PerformanceMetricsSchema, required=True)
     points = fields.List(fields.Nested(PerformanceGraphPointSchema), required=True)
 
 
-class PortfolioQuerySchema(UserIdQuerySchema):
-    """所有者チェックだけを行う GET のクエリパラメータ。"""
+class AllocationQuerySchema(Schema):
+    """GET /portfolios/allocation のクエリパラメータ。"""
+
+    group_by = fields.Enum(
+        AllocationGroupBy, by_value=True, required=True,
+        metadata={"description": "集計基準", "example": "asset_type"},
+    )
 
 
-class PerformanceQuerySchema(DateRangeQueryMixin, UserIdQuerySchema):
-    """GET /portfolios/{portfolio_id}/performance のクエリパラメータ。"""
+class PerformanceQuerySchema(DateRangeQueryMixin, Schema):
+    """GET /portfolios/performance のクエリパラメータ。
+
+    期間は `range`（1D〜ALL のセレクタ）か `start_date` / `end_date` の
+    どちらかで指定する。両方指定した場合は日付のほうを優先する。
+    """
 
     start_date = fields.Date(metadata={"example": "2026-07-26"})
     end_date = fields.Date(metadata={"example": "2026-07-28"})
+    range = fields.Enum(
+        PerformanceRange, by_value=True, load_default=PerformanceRange.SIX_MONTHS,
+        metadata={"description": "期間セレクタ", "example": "1y"},
+    )
     interval = fields.Enum(
         Interval, by_value=True, load_default=Interval.DAILY,
         metadata={"description": "グラフの粒度", "example": "1d"},

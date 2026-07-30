@@ -11,6 +11,9 @@ POSITIVE = validate.Range(min=0, min_inclusive=False)
 #: ID の下限（1 以上）。
 POSITIVE_ID = validate.Range(min=1)
 
+#: 構成比・目標比率（0〜1）。
+WEIGHT = validate.Range(min=0, max=1)
+
 
 class ErrorSchema(Schema):
     """flask-smorest の abort() が返すエラーレスポンス。"""
@@ -20,20 +23,6 @@ class ErrorSchema(Schema):
     message = fields.Str(metadata={"description": "エラーの概要"})
     errors = fields.Dict(
         metadata={"description": "バリデーションエラーの詳細（フィールド単位）"}
-    )
-
-
-class UserIdQuerySchema(Schema):
-    """所有者チェック用の `user_id`。
-
-    モック／開発中は private な API に `user_id` をクエリパラメータで渡す。
-    本番ではログイン情報から解決する想定なので、その際はこのスキーマを外す。
-    """
-
-    user_id = fields.Int(
-        required=True,
-        validate=POSITIVE_ID,
-        metadata={"description": "User ID", "example": 101},
     )
 
 
@@ -47,3 +36,46 @@ class DateRangeQueryMixin:
             raise ValidationError(
                 {"end_date": ["start_date は end_date 以前にしてください。"]}
             )
+
+
+class PaginationQueryMixin:
+    """ページングするクエリスキーマ用の `page` / `per_page`。
+
+    一覧画面は「Showing 5 of 24 positions」「Page 1 of 5」のように総件数と
+    ページ数を出すため、レスポンスは `PaginationSchema` を添えて返す。
+    """
+
+    page = fields.Int(
+        load_default=1,
+        validate=validate.Range(min=1),
+        metadata={"description": "1 始まりのページ番号", "example": 1},
+    )
+    per_page = fields.Int(
+        load_default=20,
+        validate=validate.Range(min=1, max=100),
+        metadata={"description": "1 ページあたりの件数", "example": 20},
+    )
+
+
+class PaginationSchema(Schema):
+    """一覧レスポンスのページ情報。"""
+
+    page = fields.Int(
+        required=True, validate=validate.Range(min=1), metadata={"example": 1}
+    )
+    per_page = fields.Int(
+        required=True, validate=validate.Range(min=1), metadata={"example": 5}
+    )
+    total_items = fields.Int(
+        required=True, validate=NON_NEGATIVE,
+        metadata={"description": "フィルタ適用後の総件数", "example": 24},
+    )
+    total_pages = fields.Int(
+        required=True, validate=NON_NEGATIVE, metadata={"example": 5}
+    )
+
+
+class MessageSchema(Schema):
+    """処理結果だけを返すレスポンス。"""
+
+    message = fields.Str(required=True, metadata={"example": "Updated"})

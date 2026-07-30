@@ -32,7 +32,7 @@ class AssetItem(MethodView):
         """資産マスタ情報を取得する。
 
         公開データなので `user_id` は不要。保有数量や取得価額は
-        `GET /portfolios/{portfolio_id}/holdings` で取得する。
+        `GET /portfolios/holdings` で取得する。
         """
         abort(501, message=NOT_IMPLEMENTED)
 
