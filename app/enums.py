@@ -14,9 +14,50 @@ class TransactionType(enum.Enum):
     SELL = "sell"
 
 
+class TransactionStatus(enum.Enum):
+    """取引の約定ステータス。
+
+    - ``completed`` : 約定済み。保有残高に反映済み。
+    - ``pending``   : 約定待ち。保有残高にはまだ反映しない。
+    """
+
+    COMPLETED = "completed"
+    PENDING = "pending"
+
+
 class Interval(enum.Enum):
     """推移グラフの粒度。Yahoo Finance の interval 表記に合わせる。"""
 
     DAILY = "1d"
     WEEKLY = "1wk"
     MONTHLY = "1mo"
+
+
+class PerformanceRange(enum.Enum):
+    """パフォーマンス画面の期間セレクタ（1D / 1W / 1M / 3M / 6M / 1Y / ALL）。
+
+    `Interval` がグラフの「粒度」なのに対し、こちらは「どこまで遡るか」を表す。
+    `all` は口座開設日（最初の取引日）からの全期間。
+    """
+
+    DAY = "1d"
+    WEEK = "1w"
+    MONTH = "1m"
+    THREE_MONTHS = "3m"
+    SIX_MONTHS = "6m"
+    YEAR = "1y"
+    ALL = "all"
+
+
+class Theme(enum.Enum):
+    """UI のカラーテーマ。"""
+
+    LIGHT = "light"
+    DARK = "dark"
+
+
+class ExportFormat(enum.Enum):
+    """明細・レポートのエクスポート形式。"""
+
+    CSV = "csv"
+    PDF = "pdf"

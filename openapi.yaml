@@ -13,6 +13,44 @@ components:
             $ref: '#/components/schemas/Error'
       description: Unprocessable Content
   schemas:
+    AllocationDriftItem:
+      additionalProperties: false
+      properties:
+        deviation:
+          description: 目標との差（weight − target_weight）
+          example: 0.05
+          nullable: true
+          type: number
+        holdings_count:
+          description: この資産クラスの保有銘柄数
+          example: 12
+          minimum: 0
+          type: integer
+        name:
+          example: stock
+          type: string
+        target_weight:
+          description: 目標構成比（0〜1）
+          example: 0.4
+          maximum: 1.0
+          minimum: 0.0
+          nullable: true
+          type: number
+        value:
+          example: 4220000
+          minimum: 0.0
+          type: number
+        weight:
+          example: 0.72
+          maximum: 1.0
+          minimum: 0.0
+          type: number
+      required:
+      - holdings_count
+      - name
+      - value
+      - weight
+      type: object
     AllocationItem:
       additionalProperties: false
       properties:
@@ -115,6 +153,25 @@ components:
       - email
       - user_id
       type: object
+    Benchmark:
+      additionalProperties: false
+      properties:
+        name:
+          example: S&P 500
+          type: string
+        return_percent:
+          description: 対象期間の指数騰落率（％）。UI の「S&P 500 (+8.2% YTD)」。
+          example: 8.2
+          type: number
+        symbol:
+          description: Yahoo Finance symbol
+          example: ^GSPC
+          type: string
+      required:
+      - name
+      - return_percent
+      - symbol
+      type: object
     Error:
       additionalProperties: false
       properties:
@@ -140,6 +197,11 @@ components:
           example: 1
           minimum: 1
           type: integer
+        asset_type:
+          description: 資産クラス。配分表の `by_asset_type` と同じ区分。
+          example: stock
+          maxLength: 20
+          type: string
         average_purchase_price:
           description: 平均取得単価
           example: 1095.8
@@ -152,6 +214,15 @@ components:
         current_price:
           description: Yahoo Finance 由来の市場価格。Supabase holdings には保存しない。
           example: 2980.5
+          minimum: 0.0
+          type: number
+        day_change_percent:
+          description: 前日終値からの騰落率（％）。下落なら負。
+          example: 1.8
+          type: number
+        market_value:
+          description: 評価額（quantity × current_price）
+          example: 25334.25
           minimum: 0.0
           type: number
         name:
@@ -167,23 +238,41 @@ components:
           example: 8.5
           minimum: 0.0
           type: number
+        sector:
+          description: 株式のセクター。株式以外の資産では null。
+          example: Technology
+          maxLength: 50
+          type: string
         symbol:
           description: Yahoo Finance symbol
           example: 7203.T
           type: string
+        total_return:
+          description: 評価損益（評価額 − 取得原価）。損失なら負。
+          example: 16019.95
+          type: number
+        total_return_percent:
+          description: 取得原価に対する損益率（％）
+          example: 171.98
+          type: number
         user_id:
           example: 101
           minimum: 1
           type: integer
       required:
       - asset_id
+      - asset_type
       - average_purchase_price
       - currency
       - current_price
+      - day_change_percent
+      - market_value
       - name
       - portfolio_id
       - quantity
       - symbol
+      - total_return
+      - total_return_percent
       - user_id
       type: object
     LoginRequest:
@@ -210,6 +299,32 @@ components:
       required:
       - message
       type: object
+    MonthlyReturn:
+      additionalProperties: false
+      properties:
+        benchmark_return_percent:
+          example: 1.6
+          nullable: true
+          type: number
+        excess_return_percent:
+          description: ベンチマークに対する超過リターン（portfolio_return_percent − benchmark_return_percent）
+          example: 0.81
+          nullable: true
+          type: number
+        month:
+          description: 対象月（YYYY-MM）
+          example: 2026-05
+          pattern: ^\d{4}-\d{2}$
+          type: string
+        portfolio_return_percent:
+          example: 2.41
+          type: number
+      required:
+      - benchmark_return_percent
+      - excess_return_percent
+      - month
+      - portfolio_return_percent
+      type: object
     PaginationMetadata:
       additionalProperties: false
       properties:
@@ -231,8 +346,18 @@ components:
     PerformanceGraph:
       additionalProperties: false
       properties:
+        benchmark:
+          anyOf:
+          - $ref: '#/components/schemas/Benchmark'
+          - nullable: true
+            type: object
+          description: benchmark 未指定なら null
         currency:
           example: JPY
+          type: string
+        end_date:
+          example: '2026-07-28'
+          format: date
           type: string
         interval:
           enum:
@@ -240,6 +365,13 @@ components:
           - 1wk
           - 1mo
           example: 1d
+        metrics:
+          $ref: '#/components/schemas/PerformanceMetrics'
+        monthly_returns:
+          description: 新しい月が先頭。対象期間に満たない月は含めない。
+          items:
+            $ref: '#/components/schemas/MonthlyReturn'
+          type: array
         points:
           items:
             $ref: '#/components/schemas/PerformanceGraphPoint'
@@ -248,20 +380,47 @@ components:
           example: 1
           minimum: 1
           type: integer
+        range:
+          description: 期間セレクタで指定された値。start_date / end_date で直接指定された場合は null。
+          enum:
+          - 1d
+          - 1w
+          - 1m
+          - 3m
+          - 6m
+          - 1y
+          - all
+          - null
+          example: 1y
+          nullable: true
+        start_date:
+          example: '2026-01-01'
+          format: date
+          type: string
         user_id:
           example: 101
           minimum: 1
           type: integer
       required:
       - currency
+      - end_date
       - interval
+      - metrics
+      - monthly_returns
       - points
       - portfolio_id
+      - start_date
       - user_id
       type: object
     PerformanceGraphPoint:
       additionalProperties: false
       properties:
+        benchmark_value:
+          description: 同額を benchmark に投資した場合の評価額。benchmark 未指定、または当日の指数値が取れない場合は null。
+          example: 4100000
+          minimum: 0.0
+          nullable: true
+          type: number
         date:
           example: '2026-07-28'
           format: date
@@ -282,6 +441,59 @@ components:
       - total_market_value
       - total_purchase_value
       - unrealized_gain_loss
+      type: object
+    PerformanceMetrics:
+      additionalProperties: false
+      properties:
+        best_performer:
+          anyOf:
+          - nullable: true
+            type: object
+          - $ref: '#/components/schemas/Performer'
+        sharpe_ratio:
+          description: リスク調整後リターン。日次リターンの平均÷標準偏差を年率換算する。
+          example: 1.42
+          nullable: true
+          type: number
+        total_return:
+          description: 対象期間の損益額
+          example: 149832.5
+          type: number
+        total_return_percent:
+          description: 対象期間の損益率（％）
+          example: 12.4
+          type: number
+        worst_performer:
+          anyOf:
+          - nullable: true
+            type: object
+          - $ref: '#/components/schemas/Performer'
+      required:
+      - total_return
+      - total_return_percent
+      type: object
+    Performer:
+      additionalProperties: false
+      properties:
+        asset_id:
+          example: 1
+          minimum: 1
+          type: integer
+        name:
+          example: Toyota Motor Corp.
+          type: string
+        return_percent:
+          description: 対象期間の損益率（％）
+          example: 48.2
+          type: number
+        symbol:
+          example: 7203.T
+          type: string
+      required:
+      - asset_id
+      - name
+      - return_percent
+      - symbol
       type: object
     Portfolio:
       additionalProperties: false
@@ -316,22 +528,35 @@ components:
     PortfolioAllocation:
       additionalProperties: false
       properties:
+        as_of:
+          description: 配分の計算に使った市場価格の時刻。UI の「Last updated 5 mins ago」の元になる。
+          example: '2026-07-30T14:25:00'
+          format: date-time
+          type: string
         by_asset:
           items:
             $ref: '#/components/schemas/AllocationItem'
           type: array
         by_asset_type:
+          description: 資産クラス別。目標比率と乖離を含む。
           items:
-            $ref: '#/components/schemas/AllocationItem'
+            $ref: '#/components/schemas/AllocationDriftItem'
           type: array
         by_currency:
           items:
             $ref: '#/components/schemas/AllocationItem'
           type: array
+        by_sector:
+          description: 株式のセクター別配分（Equity Sector Exposure）
+          items:
+            $ref: '#/components/schemas/AllocationItem'
+          type: array
       required:
+      - as_of
       - by_asset
       - by_asset_type
       - by_currency
+      - by_sector
       type: object
     PortfolioCreate:
       additionalProperties: false
@@ -361,6 +586,16 @@ components:
     PortfolioSummary:
       additionalProperties: false
       properties:
+        as_of:
+          description: 評価に使った市場価格の時刻
+          example: '2026-07-30T14:25:00'
+          format: date-time
+          type: string
+        asset_type_count:
+          description: 資産クラス数。UI の「6 Asset Classes」。
+          example: 6
+          minimum: 0
+          type: integer
         cash_balance:
           description: Mock-only cash value; current Supabase schema has no cash balance
             column
@@ -370,6 +605,19 @@ components:
         currency:
           example: JPY
           type: string
+        day_change:
+          description: 前日終値からの評価損益の変化額
+          example: 42150
+          type: number
+        day_change_percent:
+          description: 前日終値からの騰落率（％）
+          example: 1.01
+          type: number
+        holdings_count:
+          description: 保有銘柄数
+          example: 24
+          minimum: 0
+          type: integer
         portfolio_id:
           example: 1
           type: integer
@@ -388,17 +636,27 @@ components:
         unrealized_gain_loss:
           example: 318750
           type: number
+        unrealized_gain_loss_percent:
+          description: 取得原価に対する損益率（％）。ヘッダーの Total Return。
+          example: 8.17
+          type: number
         user_id:
           example: 101
           type: integer
       required:
+      - as_of
+      - asset_type_count
       - cash_balance
       - currency
+      - day_change
+      - day_change_percent
+      - holdings_count
       - portfolio_id
       - total_asset_value
       - total_market_value
       - total_purchase_value
       - unrealized_gain_loss
+      - unrealized_gain_loss_percent
       - user_id
       type: object
     PriceHistoryItem:
@@ -467,6 +725,15 @@ components:
           example: 1
           minimum: 1
           type: integer
+        asset_type:
+          description: 資産クラス
+          example: stock
+          maxLength: 20
+          type: string
+        currency:
+          description: 通貨
+          example: JPY
+          type: string
         date:
           example: '2026-05-26T18:00:00'
           format: date-time
@@ -476,6 +743,10 @@ components:
           example: 0.0
           minimum: 0.0
           type: number
+        name:
+          description: Asset name
+          example: Toyota Motor Corp.
+          type: string
         portfolio_id:
           example: 1
           minimum: 1
@@ -487,6 +758,20 @@ components:
         quantity:
           example: 5.4
           exclusiveMinimum: true
+          minimum: 0.0
+          type: number
+        status:
+          enum:
+          - completed
+          - pending
+          example: completed
+        symbol:
+          description: Yahoo Finance symbol
+          example: 7203.T
+          type: string
+        total_amount:
+          description: 約定代金（quantity × price）。手数料は含めない。
+          example: 16094.7
           minimum: 0.0
           type: number
         transaction_id:
@@ -504,10 +789,16 @@ components:
           type: integer
       required:
       - asset_id
+      - asset_type
+      - currency
       - date
+      - name
       - portfolio_id
       - price
       - quantity
+      - status
+      - symbol
+      - total_amount
       - transaction_id
       - transaction_type
       - user_id
@@ -553,6 +844,13 @@ components:
           exclusiveMinimum: true
           minimum: 0.0
           type: number
+        status:
+          default: completed
+          description: '`pending` の取引は保有残高に反映しない。'
+          enum:
+          - completed
+          - pending
+          example: completed
         transaction_type:
           enum:
           - buy
@@ -595,6 +893,13 @@ components:
           exclusiveMinimum: true
           minimum: 0.0
           type: number
+        status:
+          default: completed
+          description: '`pending` の取引は保有残高に反映しない。'
+          enum:
+          - completed
+          - pending
+          example: completed
         transaction_type:
           enum:
           - buy
@@ -851,6 +1156,25 @@ paths:
 
         Yahoo Finance 由来の市場価格で、Supabase holdings には保存しない。'
       parameters:
+      - description: 1 始まりのページ番号
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          example: 1
+          minimum: 1
+          type: integer
+      - description: 1 ページあたりの件数
+        in: query
+        name: per_page
+        required: false
+        schema:
+          default: 20
+          example: 20
+          maximum: 100
+          minimum: 1
+          type: integer
       - description: User ID
         in: query
         name: user_id
@@ -867,6 +1191,31 @@ paths:
           example: 1
           minimum: 1
           type: integer
+      - description: 銘柄名またはティッカーの部分一致（大文字小文字を区別しない）
+        in: query
+        name: search
+        required: false
+        schema:
+          example: '7203'
+          maxLength: 100
+          minLength: 1
+          type: string
+      - description: 資産クラスで絞り込む。省略時は全件（UI の `All`）。
+        in: query
+        name: asset_type
+        required: false
+        schema:
+          example: stock
+          maxLength: 20
+          type: string
+      - description: セクターで絞り込む。省略時は全件（UI の `All`）。
+        in: query
+        name: sector
+        required: false
+        schema:
+          example: Technology
+          maxLength: 50
+          type: string
       responses:
         '200':
           content:
@@ -922,6 +1271,21 @@ paths:
           example: '2026-07-28'
           format: date
           type: string
+      - description: 期間セレクタ
+        in: query
+        name: range
+        required: false
+        schema:
+          default: 6m
+          enum:
+          - 1d
+          - 1w
+          - 1m
+          - 3m
+          - 6m
+          - 1y
+          - all
+          example: 1y
       - description: グラフの粒度
         in: query
         name: interval
@@ -933,6 +1297,13 @@ paths:
           - 1wk
           - 1mo
           example: 1d
+      - description: 比較する指数の Yahoo Finance symbol。省略するとベンチマーク系列を返さない。
+        in: query
+        name: benchmark
+        required: false
+        schema:
+          example: ^GSPC
+          type: string
       responses:
         '200':
           content:
@@ -1007,6 +1378,25 @@ paths:
 
         日付はどちらも指定日を含む（inclusive）。'
       parameters:
+      - description: 1 始まりのページ番号
+        in: query
+        name: page
+        required: false
+        schema:
+          default: 1
+          example: 1
+          minimum: 1
+          type: integer
+      - description: 1 ページあたりの件数
+        in: query
+        name: per_page
+        required: false
+        schema:
+          default: 20
+          example: 20
+          maximum: 100
+          minimum: 1
+          type: integer
       - description: User ID
         in: query
         name: user_id
@@ -1023,6 +1413,41 @@ paths:
           example: 1
           minimum: 1
           type: integer
+      - description: 銘柄名またはティッカーの部分一致（大文字小文字を区別しない）
+        in: query
+        name: search
+        required: false
+        schema:
+          example: '7203'
+          maxLength: 100
+          minLength: 1
+          type: string
+      - description: '取引種別で絞り込む。省略時は全件（UI の `Type: All`）。'
+        in: query
+        name: transaction_type
+        required: false
+        schema:
+          enum:
+          - buy
+          - sell
+          example: buy
+      - description: '資産クラスで絞り込む。省略時は全件（UI の `Asset Class: All`）。'
+        in: query
+        name: asset_type
+        required: false
+        schema:
+          example: stock
+          maxLength: 20
+          type: string
+      - description: 約定ステータスで絞り込む
+        in: query
+        name: status
+        required: false
+        schema:
+          enum:
+          - completed
+          - pending
+          example: completed
       - description: この日付以降（当日を含む）の取引を返す
         in: query
         name: start_date
