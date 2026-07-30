@@ -31,13 +31,17 @@ record portfolio transactions and update current holdings.
 
 ## Data Access Rules
 
-- `portfolio_id` in the path is the only identifier a client sends for private
-  portfolio data. Requests never carry `user_id`.
-- The backend resolves the owner from login/auth and checks it against
-  `portfolio.user_id`. A portfolio owned by someone else is a 404, not a 403,
-  so the API does not leak which portfolio ids exist.
+- Clients send no owner identifier at all for private portfolio data: neither
+  `portfolio_id` nor `user_id` appears in any path, query string, or request
+  body.
+- The backend resolves both the user and the target portfolio from login/auth,
+  so every private endpoint acts on the caller's own portfolio. Since a client
+  cannot name someone else's portfolio, the API cannot leak which portfolio ids
+  exist.
 - User-owned portfolio data is still filtered by `user_id` internally; that is a
   server-side concern backed by the `portfolio.user_id` column.
+- Responses still report `portfolio_id` so a client knows which portfolio the
+  data came from.
 - Public asset/market data is not scoped to a portfolio at all.
 
 ## Swagger Sections
@@ -52,8 +56,8 @@ record portfolio transactions and update current holdings.
 ## Current Mock Endpoints
 
 Paths below are shown without a prefix. The Flask app serves them under
-`/api/v1`, so `GET /portfolios/1/summary` is
-`GET /api/v1/portfolios/1/summary`.
+`/api/v1`, so `GET /portfolios/summary` is
+`GET /api/v1/portfolios/summary`.
 
 ### Auth
 
@@ -128,14 +132,14 @@ Response:
 }
 ```
 
-`GET /portfolios/{portfolio_id}/summary`
+`GET /portfolios/summary`
 
 Returns cash balance, market value, and total return rate for one portfolio.
 
 Request:
 
 ```text
-GET /portfolios/1/summary
+GET /portfolios/summary
 ```
 
 Notes:
@@ -145,7 +149,7 @@ Notes:
 - `cash_balance` is mock-only because the current Supabase schema has no cash
   balance column/table.
 
-`GET /portfolios/{portfolio_id}/holdings`
+`GET /portfolios/holdings`
 
 Returns current holdings for one portfolio as `items`, plus a `totals` row
 aggregated over every holding that matches the filters and a `pagination` block.
@@ -154,7 +158,7 @@ aggregated over every holding that matches the filters and a `pagination` block.
 Request:
 
 ```text
-GET /portfolios/1/holdings
+GET /portfolios/holdings
 ```
 
 Supports filters:
@@ -167,7 +171,7 @@ Important data boundary:
 - `current_price` is market data from Yahoo Finance or `asset_data_history`.
 - Do not store `current_price` in `holdings`.
 
-`GET /portfolios/{portfolio_id}/allocation`
+`GET /portfolios/allocation`
 
 Returns allocation for one grouping. `group_by` is required and takes one of
 `asset_type`, `currency`, `asset`, or `sector`. There is no combined response;
@@ -180,7 +184,7 @@ portfolio total whenever non-equity assets are held.
 Request:
 
 ```text
-GET /portfolios/1/allocation?group_by=asset_type
+GET /portfolios/allocation?group_by=asset_type
 ```
 
 Response:
@@ -203,14 +207,14 @@ Response:
 }
 ```
 
-`GET /portfolios/{portfolio_id}/performance`
+`GET /portfolios/performance`
 
 Returns graph-ready portfolio performance points.
 
 Request:
 
 ```text
-GET /portfolios/1/performance?start_date=2026-07-26&end_date=2026-07-28&interval=1d
+GET /portfolios/performance?start_date=2026-07-26&end_date=2026-07-28&interval=1d
 ```
 
 Response:
@@ -246,7 +250,7 @@ Returns one asset master record. The response includes `ticker`, which connects
 the asset to Yahoo Finance market data.
 
 This endpoint does not return private user-owned values like quantity or
-average cost. Those values belong to `GET /portfolios/{portfolio_id}/holdings`.
+average cost. Those values belong to `GET /portfolios/holdings`.
 
 `GET /assets/{asset_id}/price-history`
 
@@ -256,7 +260,7 @@ Returns mock historical OHLCV price data. Future behavior uses the asset
 
 ### Transactions
 
-`GET /portfolios/{portfolio_id}/transactions`
+`GET /portfolios/transactions`
 
 Returns one user's transaction history for one portfolio, with realized profit
 and loss per transaction and for the filtered set as a whole.
@@ -264,7 +268,7 @@ and loss per transaction and for the filtered set as a whole.
 Request:
 
 ```text
-GET /portfolios/1/transactions?page=1&per_page=20
+GET /portfolios/transactions?page=1&per_page=20
 ```
 
 Response:
@@ -335,14 +339,12 @@ Future extensible query options:
 `POST /transactions`
 
 Records one buy or sell transaction and updates the user's holding. The target
-portfolio is named in the body, so this endpoint does not sit under
-`/portfolios/{portfolio_id}`.
+portfolio is resolved from login/auth, not sent by the client.
 
 Request:
 
 ```json
 {
-  "portfolio_id": 1,
   "asset_id": 1,
   "transaction_type": "buy",
   "quantity": 2
@@ -372,7 +374,7 @@ Response:
 
 Behavior:
 
-- Uses `portfolio_id` from the body.
+- Resolves the target portfolio from login/auth.
 - `buy` inserts one transaction and increases the matching holding quantity.
 - `buy` recalculates holding average cost.
 - `sell` inserts one transaction and decreases the matching holding quantity.
@@ -389,13 +391,11 @@ Request:
 {
   "transactions": [
     {
-      "portfolio_id": 1,
       "asset_id": 1,
       "transaction_type": "buy",
       "quantity": 2
     },
     {
-      "portfolio_id": 1,
       "asset_id": 2,
       "transaction_type": "sell",
       "quantity": 1
@@ -409,9 +409,8 @@ Purpose:
 - Reduces network overhead by sending many transactions in one request.
 - Improves database batch insert/update efficiency.
 - Lets the backend validate the whole batch before updating holdings.
-- Each element carries its own `portfolio_id`, so one batch can span several
-  portfolios. Every referenced portfolio is ownership-checked before anything
-  is written.
+- Every element applies to the one portfolio resolved from login/auth, so a
+  batch cannot span several portfolios.
 
 ## Supabase Database Design
 
@@ -566,8 +565,8 @@ Database behavior notes:
 
 ## Future Supabase Behavior
 
-1. For transaction create, use body `portfolio_id` and `asset_id` to find
-   or create a matching `holdings` row.
+1. For transaction create, use the portfolio resolved from login/auth and body
+   `asset_id` to find or create a matching `holdings` row.
 2. Resolve body `transaction_type` (`buy` / `sell`) to
    `transaction_type.id`.
 3. Insert the transaction row with `holding_id`, `transaction_type_id`,

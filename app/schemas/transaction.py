@@ -16,14 +16,11 @@ from app.schemas.common import (
 class TransactionItemSchema(Schema):
     """取引 1 件分の登録内容。単件登録のボディと一括登録の 1 要素に使う。
 
-    所属先はボディの `portfolio_id` で指定する。一括登録では要素ごとに
-    持つので、1 リクエストで複数のポートフォリオにまたがって登録できる。
+    登録先のポートフォリオはログイン情報から解決するため、クライアントは
+    `portfolio_id` を送らない。1 リクエストで複数のポートフォリオにまたがる
+    登録はできない。
     """
 
-    portfolio_id = fields.Int(
-        required=True, validate=POSITIVE_ID,
-        metadata={"description": "登録先のポートフォリオ", "example": 1},
-    )
     asset_id = fields.Int(
         required=True, validate=POSITIVE_ID, metadata={"example": 1}
     )
@@ -41,11 +38,16 @@ class TransactionSchema(TransactionItemSchema):
     """取引（レスポンス）。
 
     `transaction_id` は登録時に採番される。`price` と `date` は約定時に
-    サーバー側で確定するため、登録リクエストには含めない。
+    サーバー側で確定するため、登録リクエストには含めない。`portfolio_id` は
+    サーバーが解決した登録先を返すだけで、リクエストでは受け取らない。
     """
 
     transaction_id = fields.Int(
         required=True, validate=POSITIVE_ID, metadata={"example": 1}
+    )
+    portfolio_id = fields.Int(
+        required=True, validate=POSITIVE_ID,
+        metadata={"description": "登録先のポートフォリオ", "example": 1},
     )
     price = fields.Float(
         required=True, validate=NON_NEGATIVE,

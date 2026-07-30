@@ -6,7 +6,6 @@
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 
-from app.api.parameters import PORTFOLIO_ID
 from app.schemas.holding import HoldingsPageSchema, HoldingsQuerySchema
 from app.schemas.portfolio import (
     AllocationQuerySchema,
@@ -38,11 +37,11 @@ class PortfolioCollection(MethodView):
         abort(501, message=NOT_IMPLEMENTED)
 
 
-@blp.route("/<int:portfolio_id>/summary", parameters=[PORTFOLIO_ID])
+@blp.route("/summary")
 class PortfolioSummary(MethodView):
     @blp.response(200, PortfolioSummarySchema)
     @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
-    def get(self, portfolio_id):
+    def get(self):
         """ポートフォリオサマリーを取得する。
 
         現金残高・評価額・損益率を返す。評価額の市場価格は
@@ -52,12 +51,12 @@ class PortfolioSummary(MethodView):
         abort(501, message=NOT_IMPLEMENTED)
 
 
-@blp.route("/<int:portfolio_id>/holdings", parameters=[PORTFOLIO_ID])
+@blp.route("/holdings")
 class PortfolioHoldings(MethodView):
     @blp.arguments(HoldingsQuerySchema, location="query")
     @blp.response(200, HoldingsPageSchema)
     @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
-    def get(self, args, portfolio_id):
+    def get(self, args):
         """保有残高一覧を取得する。
 
         1 つのポートフォリオに含まれる複数の資産を `items` に、フィルタ適用後の
@@ -67,12 +66,12 @@ class PortfolioHoldings(MethodView):
         abort(501, message=NOT_IMPLEMENTED)
 
 
-@blp.route("/<int:portfolio_id>/allocation", parameters=[PORTFOLIO_ID])
+@blp.route("/allocation")
 class PortfolioAllocation(MethodView):
     @blp.arguments(AllocationQuerySchema, location="query")
     @blp.response(200, PortfolioAllocationSchema)
     @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
-    def get(self, args, portfolio_id):
+    def get(self, args):
         """資産配分を取得する。
 
         `group_by` で指定した 1 つの基準（資産クラス・通貨・銘柄・セクター）で
@@ -81,13 +80,13 @@ class PortfolioAllocation(MethodView):
         abort(501, message=NOT_IMPLEMENTED)
 
 
-@blp.route("/<int:portfolio_id>/performance", parameters=[PORTFOLIO_ID])
+@blp.route("/performance")
 class PortfolioPerformance(MethodView):
     @blp.arguments(PerformanceQuerySchema, location="query")
     @blp.response(200, PerformanceGraphSchema)
     @blp.alt_response(400, description="start_date must be before or equal to end_date")
     @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
-    def get(self, args, portfolio_id):
+    def get(self, args):
         """ポートフォリオ推移グラフを取得する。
 
         取引履歴から日付ごとの保有残高を復元し、`asset_data_history` または

@@ -6,7 +6,6 @@
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 
-from app.api.parameters import PORTFOLIO_ID
 from app.schemas.transaction import (
     TransactionBatchCreateSchema,
     TransactionItemSchema,
@@ -26,12 +25,12 @@ NOT_IMPLEMENTED = "未実装。API 設計のみ定義済み。"
 PORTFOLIO_NOT_FOUND = "The specified portfolio does not exist"
 
 
-@blp.route("/portfolios/<int:portfolio_id>/transactions", parameters=[PORTFOLIO_ID])
+@blp.route("/portfolios/transactions")
 class PortfolioTransactionCollection(MethodView):
     @blp.arguments(TransactionQuerySchema, location="query")
     @blp.response(200, TransactionPageSchema)
     @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
-    def get(self, args, portfolio_id):
+    def get(self, args):
         """取引履歴を取得する。
 
         `asset_id` / `start_date` / `end_date` で絞り込める。
@@ -53,7 +52,7 @@ class TransactionCollection(MethodView):
     def post(self, payload):
         """取引を登録し、保有残高（holdings）を更新する。
 
-        登録先はボディの `portfolio_id` で指定する。`buy` は保有数量を増やして
+        登録先はログイン情報から解決する。`buy` は保有数量を増やして
         平均取得単価を再計算し、`sell` は保有数量を減らす。保有数量を超える
         売却は 400。
         """
@@ -71,7 +70,6 @@ class TransactionBatch(MethodView):
 
         ネットワーク通信回数を減らし、データベースの一括登録・一括更新効率を
         高める。全件を検証してから更新するため、1 件でも不正なら何も更新しない。
-        要素ごとに `portfolio_id` を持つので、複数のポートフォリオにまたがる
-        一括登録もできる。
+        登録先はログイン情報から解決した 1 つのポートフォリオで、全要素に共通。
         """
         abort(501, message=NOT_IMPLEMENTED)

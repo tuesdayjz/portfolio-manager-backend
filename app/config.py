@@ -37,8 +37,8 @@ class BaseConfig:
                 "- `assets` … 資産マスタと Yahoo Finance の市場価格\n"
                 "- `transactions` … 売買の取引履歴\n\n"
                 "実際の証券発注は行わない。売買は取引履歴の記録と保有残高の更新だけを行う。\n\n"
-                "private なデータはパスの `portfolio_id` で特定する。所有者はログイン情報から "
-                "解決するので、`user_id` をクライアントから渡す必要はない。"
+                "private なデータの対象ポートフォリオはログイン情報から解決する。"
+                "クライアントは `portfolio_id` も `user_id` も送らない。"
                 "公開の資産・市場データはポートフォリオに紐づかない。"
             ),
             "contact": {"name": "Portfolio Manager Team"},
