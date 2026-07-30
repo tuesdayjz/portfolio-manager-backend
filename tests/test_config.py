@@ -5,6 +5,8 @@ import sys
 import unittest
 from unittest.mock import patch
 
+from flask import Flask
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -51,3 +53,36 @@ class SupabaseConfigTest(unittest.TestCase):
         self.assertEqual(config.DEFAULT_BASE_CURRENCY, "JPY")
 
         importlib.reload(config_module)
+
+    def test_supabase_clients_use_flask_app_config(self):
+        from app.services.supabase import get_supabase_anon_client
+
+        app = Flask(__name__)
+        app.config.update(
+            {
+                "SUPABASE_URL": "https://example.supabase.co",
+                "SUPABASE_ANON_KEY": "anon-test-key",
+            }
+        )
+
+        with app.app_context():
+            client = get_supabase_anon_client()
+
+        self.assertEqual(
+            str(client.supabase_url).rstrip("/"), "https://example.supabase.co"
+        )
+        self.assertEqual(client.supabase_key, "anon-test-key")
+
+    def test_supabase_client_requires_flask_config_key(self):
+        from app.services.supabase import get_supabase_service_client
+
+        app = Flask(__name__)
+        app.config.update(
+            {
+                "SUPABASE_URL": "https://example.supabase.co",
+                "SUPABASE_SERVICE_ROLE_KEY": "",
+            }
+        )
+
+        with app.app_context(), self.assertRaises(RuntimeError):
+            get_supabase_service_client()

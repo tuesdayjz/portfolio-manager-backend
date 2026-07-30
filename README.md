@@ -38,6 +38,23 @@ DEFAULT_BASE_CURRENCY=JPY
 - `SUPABASE_SERVICE_ROLE_KEY` は backend 専用。frontend や Git には出さない。
 - `.env` は `.gitignore` 対象なので、ローカル環境だけに置く。
 
+Flask アプリ内では Supabase 設定を直接 `os.getenv` で読まず、`app.config`
+経由で client を作成する:
+
+```python
+from app.services.supabase import get_supabase_service_client
+
+client = get_supabase_service_client()
+```
+
+`app.services.supabase.get_supabase_service_client()` は
+`current_app.config["SUPABASE_URL"]` と
+`current_app.config["SUPABASE_SERVICE_ROLE_KEY"]` を使う。frontend/user session
+相当の client が必要な場合は `get_supabase_anon_client()` を使う。
+`get_*_client()` は Flask app に cache される。テストなどで複数ユーザーの
+session を分けたい場合は `create_supabase_anon_client()` のような non-cached
+client creator を使う。
+
 ### テスト
 
 設定だけをテストする場合:
@@ -49,10 +66,28 @@ DEFAULT_BASE_CURRENCY=JPY
 Supabase への接続と、全テーブルへの read 権限を確認する場合:
 
 ```bash
-.venv/bin/python -W ignore::DeprecationWarning -m unittest tests.test_supabase_connection
+.venv/bin/python -W ignore::DeprecationWarning -m unittest tests.database_connection.test_supabase_connection
 ```
 
-この接続テストは `.env` の Supabase keys を使い、以下のテーブルに対して
+この接続テストは `.env` と `tests/.env` の Supabase keys を使う。
+GitHub に共有するテンプレートは `tests/.env.example` に置き、実際の
+テストユーザーとパスワードはローカルの `tests/.env` にだけ置く。
+
+接続テストを有効にするには `tests/.env` で以下を設定する:
+
+```text
+RUN_SUPABASE_CONNECTION_TESTS=true
+```
+
+接続テストでは以下を確認する:
+
+```text
+Connection Setup: configured URL/key で client を作成し、軽量 read で active 状態を確認する
+Basic Operations: reference table に対して select limit 1 を実行し、結果を受け取れることを確認する
+Exception & Teardown: 不正 key で例外が出ること、HTTP client resource を close できることを確認する
+```
+
+service role の core table read では以下のテーブルに対して
 `select("id").limit(1)` だけを実行する。データの作成・更新・削除は行わない。
 
 ```text
@@ -61,7 +96,6 @@ portfolio
 asset_master
 currency
 asset_type
-transaction_type
 asset_data_history
 holdings
 transactions
@@ -72,6 +106,45 @@ transactions
 ```bash
 .venv/bin/python -W ignore::DeprecationWarning -m unittest discover -s tests
 ```
+
+Database connection / Supabase 関連のテストだけを実行する場合:
+
+```bash
+.venv/bin/python -W ignore::DeprecationWarning -m unittest discover -s tests/database_connection -t .
+```
+
+Database connection / Supabase tests の内容:
+
+| Test file | 内容 |
+| --- | --- |
+| `test_supabase_connection.py` | Supabase config で client を作成し、basic read、invalid key exception、client close/release を確認する。 |
+| `test_supabase_user_rls.py` | `RUN_SUPABASE_REAL_USER=false` のとき mock users で private/shared RLS を確認し、`true` のとき real users `user001` / `user002` の holdings isolation を確認する。 |
+
+RLS テストは `RUN_SUPABASE_REAL_USER` で mock user / real user を切り替える:
+
+```text
+RUN_SUPABASE_REAL_USER=false  # mock user で private/public RLS tests を実行
+RUN_SUPABASE_REAL_USER=true   # real user001/user002 で RLS tests を実行
+```
+
+古い `SUPABASE_RLS_TEST_MODE`、`RUN_SUPABASE_RLS_TESTS`、
+`RUN_SUPABASE_REAL_USER_RLS_TESTS` もまだ使えるが、
+`RUN_SUPABASE_REAL_USER` が設定されている場合はこちらが優先される。
+
+Real-user RLS で 2 人のユーザーのデータ分離を確認する場合は、ローカルの
+`tests/.env` に以下を設定する:
+
+```text
+RUN_SUPABASE_REAL_USER=true
+RUN_SUPABASE_REAL_USER_BOOTSTRAP_DATA=true
+SUPABASE_TEST_USER_EMAIL=
+SUPABASE_TEST_USER_PASSWORD=
+SUPABASE_SECOND_TEST_USER_EMAIL=
+SUPABASE_SECOND_TEST_USER_PASSWORD=
+```
+
+`RUN_SUPABASE_REAL_USER_BOOTSTRAP_DATA=true` の場合、holding がないテストユーザーには
+一時 mock holding を作成し、テスト終了後に作成した holding / asset / portfolio を削除する。
 
 ### ドキュメント
 
