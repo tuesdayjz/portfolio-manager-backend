@@ -152,7 +152,7 @@ class TransactionBatchCreateSchema(Schema):
 
 
 class TransactionQuerySchema(DateRangeQueryMixin, PaginationQueryMixin, Schema):
-    """GET /portfolios/{portfolio_id}/transactions のクエリパラメータ。"""
+    """GET /portfolios/transactions のクエリパラメータ。"""
 
     asset_id = fields.Int(
         validate=POSITIVE_ID,

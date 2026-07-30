@@ -229,7 +229,7 @@ class PerformanceGraphSchema(Schema):
 
 
 class AllocationQuerySchema(Schema):
-    """GET /portfolios/{portfolio_id}/allocation のクエリパラメータ。"""
+    """GET /portfolios/allocation のクエリパラメータ。"""
 
     group_by = fields.Enum(
         AllocationGroupBy, by_value=True, required=True,
@@ -238,7 +238,7 @@ class AllocationQuerySchema(Schema):
 
 
 class PerformanceQuerySchema(DateRangeQueryMixin, Schema):
-    """GET /portfolios/{portfolio_id}/performance のクエリパラメータ。
+    """GET /portfolios/performance のクエリパラメータ。
 
     期間は `range`（1D〜ALL のセレクタ）か `start_date` / `end_date` の
     どちらかで指定する。両方指定した場合は日付のほうを優先する。

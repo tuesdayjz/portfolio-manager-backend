@@ -122,7 +122,7 @@ class HoldingsPageSchema(Schema):
 
 
 class HoldingsQuerySchema(PaginationQueryMixin, Schema):
-    """GET /portfolios/{portfolio_id}/holdings のクエリパラメータ。"""
+    """GET /portfolios/holdings のクエリパラメータ。"""
 
     asset_id = fields.Int(
         validate=POSITIVE_ID,
@@ -140,12 +140,5 @@ class HoldingsQuerySchema(PaginationQueryMixin, Schema):
         metadata={
             "description": "資産クラスで絞り込む。省略時は全件（UI の `All`）。",
             "example": "stock",
-        },
-    )
-    sector = fields.Str(
-        validate=validate.Length(max=50),
-        metadata={
-            "description": "セクターで絞り込む。省略時は全件（UI の `All`）。",
-            "example": "Technology",
         },
     )

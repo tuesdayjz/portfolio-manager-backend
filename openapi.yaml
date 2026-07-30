@@ -1055,14 +1055,6 @@ paths:
           example: stock
           maxLength: 20
           type: string
-      - description: セクターで絞り込む。省略時は全件（UI の `All`）。
-        in: query
-        name: sector
-        required: false
-        schema:
-          example: Technology
-          maxLength: 50
-          type: string
       responses:
         '200':
           content:

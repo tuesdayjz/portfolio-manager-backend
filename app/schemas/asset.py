@@ -63,7 +63,7 @@ class AssetInfoSchema(Schema):
     """資産マスタ情報（レスポンス）。
 
     保有数量や取得価額のような private な値は含めない。それらは
-    `GET /portfolios/{portfolio_id}/holdings` で返す。
+    `GET /portfolios/holdings` で返す。
     """
 
     asset_id = fields.Int(
