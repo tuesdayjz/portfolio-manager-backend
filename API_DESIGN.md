@@ -262,53 +262,127 @@ Returns mock historical OHLCV price data. Future behavior uses the asset
 
 `GET /portfolios/{portfolio_id}/transactions`
 
-Returns one user's transaction history for one portfolio.
+Returns one user's transaction history for one portfolio, with realized profit
+and loss per transaction and for the filtered set as a whole.
 
 Request:
 
 ```text
-GET /portfolios/1/transactions
+GET /portfolios/1/transactions?page=1&per_page=20
 ```
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "transaction_id": 12,
+      "portfolio_id": 1,
+      "asset_id": 2,
+      "transaction_type": "sell",
+      "quantity": 20,
+      "price": 178.5,
+      "date": "2026-06-11T18:00:00",
+      "total_amount": 3570.0,
+      "symbol": "TSLA",
+      "name": "Tesla Inc.",
+      "asset_type": "stock",
+      "cost_basis": 3710.0,
+      "realized_pl": -140.0,
+      "realized_pl_percent": -3.77,
+      "currency": "JPY"
+    }
+  ],
+  "totals": {
+    "cost_basis": 3710.0,
+    "realized_pl": -140.0,
+    "realized_pl_percent": -3.77,
+    "sell_count": 1,
+    "currency": "JPY"
+  },
+  "pagination": {
+    "page": 1,
+    "per_page": 20,
+    "total_items": 1,
+    "total_pages": 1
+  }
+}
+```
+
+Profit and loss rules:
+
+- `realized_pl` is `total_amount - cost_basis`, where `cost_basis` is the
+  average cost at the moment of the sale times the sold quantity.
+- A `buy` does not settle profit or loss, so `cost_basis`, `realized_pl` and
+  `realized_pl_percent` are all null on buy rows.
+- `totals` covers every row matching the filters, not just the current page, and
+  counts `sell` rows only. `sell_count` says how many rows fed the total.
+- Unrealized gain on positions still held is not part of this endpoint; it lives
+  on holdings and the portfolio summary.
 
 Supports filters:
 
 - `asset_id`
+- `search`
+- `transaction_type`
+- `asset_type`
 - `start_date`
 - `end_date`
+- `page` and `per_page`
 
 Future extensible query options:
 
-- `transaction_type`: filter by `buy` or `sell`
 - `ticker`: filter transactions after joining `asset_master`
-- `limit` and `offset`: support pagination
-- `sort_by` and `sort_order`: support sorting by date, quantity, price, or fees
+- `sort_by` and `sort_order`: support sorting by date, quantity, or price
 
-`POST /portfolios/{portfolio_id}/transactions`
+`POST /transactions`
 
-Records one buy or sell transaction and updates the user's holding.
+Records one buy or sell transaction and updates the user's holding. The target
+portfolio is named in the body, so this endpoint does not sit under
+`/portfolios/{portfolio_id}`.
 
 Request:
 
 ```json
 {
+  "portfolio_id": 1,
   "asset_id": 1,
   "transaction_type": "buy",
-  "quantity": 2,
-  "price": 3000,
-  "fees": 10,
-  "date": "2026-07-28T18:00:00"
+  "quantity": 2
 }
 ```
 
+Response:
+
+```json
+{
+  "transaction_id": 12,
+  "portfolio_id": 1,
+  "asset_id": 1,
+  "transaction_type": "buy",
+  "quantity": 2,
+  "price": 2980.5,
+  "date": "2026-07-28T18:00:00",
+  "total_amount": 5961.0,
+  "symbol": "7203.T",
+  "name": "Toyota Motor Corp.",
+  "asset_type": "stock",
+  "currency": "JPY"
+}
+```
+
+`price` and `date` are settled server-side, so they are response-only.
+
 Behavior:
 
-- Uses `portfolio_id` from the path.
+- Uses `portfolio_id` from the body.
 - `buy` inserts one transaction and increases the matching holding quantity.
 - `buy` recalculates holding average cost.
 - `sell` inserts one transaction and decreases the matching holding quantity.
 - Selling more than the current holding returns `400`.
 
-`POST /portfolios/{portfolio_id}/transactions/batch`
+`POST /transactions/batch`
 
 Records multiple buy/sell transactions in one request and updates holdings for
 each transaction.
@@ -319,20 +393,16 @@ Request:
 {
   "transactions": [
     {
+      "portfolio_id": 1,
       "asset_id": 1,
       "transaction_type": "buy",
-      "quantity": 2,
-      "price": 3000,
-      "fees": 10,
-      "date": "2026-07-28T18:00:00"
+      "quantity": 2
     },
     {
+      "portfolio_id": 1,
       "asset_id": 2,
       "transaction_type": "sell",
-      "quantity": 1,
-      "price": 33200,
-      "fees": 0,
-      "date": "2026-07-28T18:05:00"
+      "quantity": 1
     }
   ]
 }
@@ -343,6 +413,9 @@ Purpose:
 - Reduces network overhead by sending many transactions in one request.
 - Improves database batch insert/update efficiency.
 - Lets the backend validate the whole batch before updating holdings.
+- Each element carries its own `portfolio_id`, so one batch can span several
+  portfolios. Every referenced portfolio is ownership-checked before anything
+  is written.
 
 ## Supabase Database Design
 
@@ -497,7 +570,7 @@ Database behavior notes:
 
 ## Future Supabase Behavior
 
-1. For transaction create, use path `portfolio_id` and body `asset_id` to find
+1. For transaction create, use body `portfolio_id` and `asset_id` to find
    or create a matching `holdings` row.
 2. Resolve body `transaction_type` (`buy` / `sell`) to
    `transaction_type.id`.

@@ -14,17 +14,6 @@ class TransactionType(enum.Enum):
     SELL = "sell"
 
 
-class TransactionStatus(enum.Enum):
-    """取引の約定ステータス。
-
-    - ``completed`` : 約定済み。保有残高に反映済み。
-    - ``pending``   : 約定待ち。保有残高にはまだ反映しない。
-    """
-
-    COMPLETED = "completed"
-    PENDING = "pending"
-
-
 class Interval(enum.Enum):
     """推移グラフの粒度。Yahoo Finance の interval 表記に合わせる。"""
 

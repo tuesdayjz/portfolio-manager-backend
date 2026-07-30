@@ -201,20 +201,8 @@ class PerformanceGraphPointSchema(Schema):
     """推移グラフの 1 点。"""
 
     date = fields.Date(required=True, metadata={"example": "2026-07-28"})
-    total_purchase_value = fields.Float(
-        required=True, validate=NON_NEGATIVE, metadata={"example": 3901250}
-    )
     total_market_value = fields.Float(
         required=True, validate=NON_NEGATIVE, metadata={"example": 4220000}
-    )
-    unrealized_gain_loss = fields.Float(required=True, metadata={"example": 318750})
-    benchmark_value = fields.Float(
-        allow_none=True, validate=NON_NEGATIVE,
-        metadata={
-            "description": "同額を benchmark に投資した場合の評価額。"
-            "benchmark 未指定、または当日の指数値が取れない場合は null。",
-            "example": 4100000,
-        },
     )
 
 
@@ -309,11 +297,4 @@ class PerformanceQuerySchema(DateRangeQueryMixin, Schema):
     interval = fields.Enum(
         Interval, by_value=True, load_default=Interval.DAILY,
         metadata={"description": "グラフの粒度", "example": "1d"},
-    )
-    benchmark = fields.Str(
-        metadata={
-            "description": "比較する指数の Yahoo Finance symbol。省略すると"
-            "ベンチマーク系列を返さない。",
-            "example": "^GSPC",
-        }
     )

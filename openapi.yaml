@@ -256,6 +256,32 @@ components:
       required:
       - message
       type: object
+    Pagination:
+      additionalProperties: false
+      properties:
+        page:
+          example: 1
+          minimum: 1
+          type: integer
+        per_page:
+          example: 5
+          minimum: 1
+          type: integer
+        total_items:
+          description: フィルタ適用後の総件数
+          example: 24
+          minimum: 0
+          type: integer
+        total_pages:
+          example: 5
+          minimum: 0
+          type: integer
+      required:
+      - page
+      - per_page
+      - total_items
+      - total_pages
+      type: object
     PaginationMetadata:
       additionalProperties: false
       properties:
@@ -344,12 +370,6 @@ components:
     PerformanceGraphPoint:
       additionalProperties: false
       properties:
-        benchmark_value:
-          description: 同額を benchmark に投資した場合の評価額。benchmark 未指定、または当日の指数値が取れない場合は null。
-          example: 4100000
-          minimum: 0.0
-          nullable: true
-          type: number
         date:
           example: '2026-07-28'
           format: date
@@ -358,18 +378,9 @@ components:
           example: 4220000
           minimum: 0.0
           type: number
-        total_purchase_value:
-          example: 3901250
-          minimum: 0.0
-          type: number
-        unrealized_gain_loss:
-          example: 318750
-          type: number
       required:
       - date
       - total_market_value
-      - total_purchase_value
-      - unrealized_gain_loss
       type: object
     PerformanceMetrics:
       additionalProperties: false
@@ -627,28 +638,32 @@ components:
           example: stock
           maxLength: 20
           type: string
+        cost_basis:
+          description: 売却分の取得原価（売却時点の平均取得単価 × quantity）。`buy` では null。
+          example: 5917.32
+          minimum: 0.0
+          nullable: true
+          type: number
         currency:
           description: 通貨
           example: JPY
           type: string
         date:
+          description: 約定日時
           example: '2026-05-26T18:00:00'
           format: date-time
           type: string
-        fees:
-          default: 0.0
-          example: 0.0
-          minimum: 0.0
-          type: number
         name:
           description: Asset name
           example: Toyota Motor Corp.
           type: string
         portfolio_id:
+          description: 登録先のポートフォリオ
           example: 1
           minimum: 1
           type: integer
         price:
+          description: 約定単価
           example: 2980.5
           minimum: 0.0
           type: number
@@ -657,11 +672,17 @@ components:
           exclusiveMinimum: true
           minimum: 0.0
           type: number
-        status:
-          enum:
-          - completed
-          - pending
-          example: completed
+        realized_pl:
+          description: 実現損益（total_amount − cost_basis）。損失なら負。`buy` はこの時点で損益が確定しないため
+            null。
+          example: 10177.38
+          nullable: true
+          type: number
+        realized_pl_percent:
+          description: 取得原価に対する実現損益率（％）。`buy` では null。
+          example: 171.99
+          nullable: true
+          type: number
         symbol:
           description: Yahoo Finance symbol
           example: 7203.T
@@ -689,7 +710,6 @@ components:
       - portfolio_id
       - price
       - quantity
-      - status
       - symbol
       - total_amount
       - transaction_id
@@ -713,31 +733,16 @@ components:
           example: 1
           minimum: 1
           type: integer
-        date:
-          example: '2026-05-26T18:00:00'
-          format: date-time
-          type: string
-        fees:
-          default: 0.0
-          example: 0.0
-          minimum: 0.0
-          type: number
-        price:
-          example: 2980.5
-          minimum: 0.0
-          type: number
+        portfolio_id:
+          description: 登録先のポートフォリオ
+          example: 1
+          minimum: 1
+          type: integer
         quantity:
           example: 5.4
           exclusiveMinimum: true
           minimum: 0.0
           type: number
-        status:
-          default: completed
-          description: '`pending` の取引は保有残高に反映しない。'
-          enum:
-          - completed
-          - pending
-          example: completed
         transaction_type:
           enum:
           - buy
@@ -745,10 +750,56 @@ components:
           example: buy
       required:
       - asset_id
-      - date
-      - price
+      - portfolio_id
       - quantity
       - transaction_type
+      type: object
+    TransactionPage:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/Transaction'
+          type: array
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        totals:
+          $ref: '#/components/schemas/TransactionTotals'
+      required:
+      - items
+      - pagination
+      - totals
+      type: object
+    TransactionTotals:
+      additionalProperties: false
+      properties:
+        cost_basis:
+          description: 売却分の取得原価の合計
+          example: 2850000
+          minimum: 0.0
+          type: number
+        currency:
+          example: JPY
+          type: string
+        realized_pl:
+          description: 実現損益の合計。損失なら負。
+          example: 318750
+          type: number
+        realized_pl_percent:
+          description: 取得原価の合計に対する実現損益率（％）
+          example: 11.18
+          type: number
+        sell_count:
+          description: 合計の対象になった売却取引の件数
+          example: 42
+          minimum: 0
+          type: integer
+      required:
+      - cost_basis
+      - currency
+      - realized_pl
+      - realized_pl_percent
+      - sell_count
       type: object
 info:
   contact:
@@ -1121,13 +1172,6 @@ paths:
           - 1wk
           - 1mo
           example: 1d
-      - description: 比較する指数の Yahoo Finance symbol。省略するとベンチマーク系列を返さない。
-        in: query
-        name: benchmark
-        required: false
-        schema:
-          example: ^GSPC
-          type: string
       responses:
         '200':
           content:
@@ -1189,7 +1233,14 @@ paths:
     get:
       description: '`asset_id` / `start_date` / `end_date` で絞り込める。
 
-        日付はどちらも指定日を含む（inclusive）。'
+        日付はどちらも指定日を含む（inclusive）。
+
+
+        各取引の実現損益は `realized_pl`、絞り込み後の全件の合計は `totals`
+
+        で返す。`buy` は売却時まで損益が確定しないため、どちらも `sell` だけを
+
+        対象にする。'
       parameters:
       - description: 1 始まりのページ番号
         in: query
@@ -1244,15 +1295,6 @@ paths:
           example: stock
           maxLength: 20
           type: string
-      - description: 約定ステータスで絞り込む
-        in: query
-        name: status
-        required: false
-        schema:
-          enum:
-          - completed
-          - pending
-          example: completed
       - description: この日付以降（当日を含む）の取引を返す
         in: query
         name: start_date
@@ -1274,9 +1316,7 @@ paths:
           content:
             application/json:
               schema:
-                items:
-                  $ref: '#/components/schemas/Transaction'
-                type: array
+                $ref: '#/components/schemas/TransactionPage'
           description: OK
         '404':
           description: The specified portfolio does not exist
@@ -1296,10 +1336,13 @@ paths:
         example: 1
         minimum: 1
         type: integer
+  /api/v1/transactions:
     post:
-      description: '`buy` は保有数量を増やして平均取得単価を再計算し、`sell` は保有数量を
+      description: '登録先はボディの `portfolio_id` で指定する。`buy` は保有数量を増やして
 
-        減らす。保有数量を超える売却は 400。'
+        平均取得単価を再計算し、`sell` は保有数量を減らす。保有数量を超える
+
+        売却は 400。'
       requestBody:
         content:
           application/json:
@@ -1324,20 +1367,15 @@ paths:
       summary: 取引を登録し、保有残高（holdings）を更新する。
       tags:
       - transactions
-  /api/v1/portfolios/{portfolio_id}/transactions/batch:
-    parameters:
-    - description: Portfolio ID
-      in: path
-      name: portfolio_id
-      required: true
-      schema:
-        example: 1
-        minimum: 1
-        type: integer
+  /api/v1/transactions/batch:
     post:
       description: 'ネットワーク通信回数を減らし、データベースの一括登録・一括更新効率を
 
-        高める。全件を検証してから更新するため、1 件でも不正なら何も更新しない。'
+        高める。全件を検証してから更新するため、1 件でも不正なら何も更新しない。
+
+        要素ごとに `portfolio_id` を持つので、複数のポートフォリオにまたがる
+
+        一括登録もできる。'
       requestBody:
         content:
           application/json:

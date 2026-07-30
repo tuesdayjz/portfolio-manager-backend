@@ -35,6 +35,7 @@ from app.schemas.transaction import (
     TransactionBatchCreateSchema,
     TransactionItemSchema,
     TransactionPageSchema,
+    TransactionTotalsSchema,
     TransactionQuerySchema,
     TransactionSchema,
 )
@@ -94,6 +95,7 @@ __all__ = [
     "TransactionBatchCreateSchema",
     "TransactionItemSchema",
     "TransactionPageSchema",
+    "TransactionTotalsSchema",
     "TransactionQuerySchema",
     "TransactionSchema",
     "UserProfileSchema",

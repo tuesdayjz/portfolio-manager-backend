@@ -2,7 +2,7 @@
 
 from marshmallow import Schema, fields, validate
 
-from app.enums import TransactionStatus, TransactionType
+from app.enums import TransactionType
 from app.schemas.common import (
     NON_NEGATIVE,
     POSITIVE,
@@ -16,9 +16,14 @@ from app.schemas.common import (
 class TransactionItemSchema(Schema):
     """取引 1 件分の登録内容。単件登録のボディと一括登録の 1 要素に使う。
 
-    所属先は `portfolio_id` がパスから決まるので、ボディには持たない。
+    所属先はボディの `portfolio_id` で指定する。一括登録では要素ごとに
+    持つので、1 リクエストで複数のポートフォリオにまたがって登録できる。
     """
 
+    portfolio_id = fields.Int(
+        required=True, validate=POSITIVE_ID,
+        metadata={"description": "登録先のポートフォリオ", "example": 1},
+    )
     asset_id = fields.Int(
         required=True, validate=POSITIVE_ID, metadata={"example": 1}
     )
@@ -30,32 +35,25 @@ class TransactionItemSchema(Schema):
         # apispec は Range の min_inclusive を見ないので exclusiveMinimum は手で入れる
         metadata={"example": 5.4, "exclusiveMinimum": True},
     )
-    price = fields.Float(
-        required=True, validate=NON_NEGATIVE, metadata={"example": 2980.5}
-    )
-    fees = fields.Float(
-        load_default=0, validate=NON_NEGATIVE, metadata={"example": 0.0}
-    )
-    date = fields.DateTime(
-        required=True, metadata={"example": "2026-05-26T18:00:00"}
-    )
-    status = fields.Enum(
-        TransactionStatus, by_value=True, load_default=TransactionStatus.COMPLETED,
-        metadata={
-            "description": "`pending` の取引は保有残高に反映しない。",
-            "example": "completed",
-        },
-    )
 
 
 class TransactionSchema(TransactionItemSchema):
-    """取引（レスポンス）。`portfolio_id` はパスから、`transaction_id` は採番される。"""
+    """取引（レスポンス）。
 
-    portfolio_id = fields.Int(
-        required=True, validate=POSITIVE_ID, metadata={"example": 1}
-    )
+    `transaction_id` は登録時に採番される。`price` と `date` は約定時に
+    サーバー側で確定するため、登録リクエストには含めない。
+    """
+
     transaction_id = fields.Int(
         required=True, validate=POSITIVE_ID, metadata={"example": 1}
+    )
+    price = fields.Float(
+        required=True, validate=NON_NEGATIVE,
+        metadata={"description": "約定単価", "example": 2980.5},
+    )
+    date = fields.DateTime(
+        required=True,
+        metadata={"description": "約定日時", "example": "2026-05-26T18:00:00"},
     )
     symbol = fields.Str(
         required=True,
@@ -76,19 +74,68 @@ class TransactionSchema(TransactionItemSchema):
             "example": 16094.70,
         },
     )
-    status = fields.Enum(
-        TransactionStatus, by_value=True, required=True,
-        metadata={"example": "completed"},
+    cost_basis = fields.Float(
+        allow_none=True, validate=NON_NEGATIVE,
+        metadata={
+            "description": "売却分の取得原価（売却時点の平均取得単価 × quantity）。"
+            "`buy` では null。",
+            "example": 5917.32,
+        },
+    )
+    realized_pl = fields.Float(
+        allow_none=True,
+        metadata={
+            "description": "実現損益（total_amount − cost_basis）。損失なら負。"
+            "`buy` はこの時点で損益が確定しないため null。",
+            "example": 10177.38,
+        },
+    )
+    realized_pl_percent = fields.Float(
+        allow_none=True,
+        metadata={
+            "description": "取得原価に対する実現損益率（％）。`buy` では null。",
+            "example": 171.99,
+        },
     )
     currency = fields.Str(
         required=True, metadata={"description": "通貨", "example": "JPY"}
     )
 
 
+class TransactionTotalsSchema(Schema):
+    """取引履歴の合計行。
+
+    ページを送っても値が変わらないよう、フィルタ適用後の全件で集計する。
+    `buy` は実現損益を持たないため、どの値も `sell` だけを対象にする。
+    """
+
+    cost_basis = fields.Float(
+        required=True, validate=NON_NEGATIVE,
+        metadata={"description": "売却分の取得原価の合計", "example": 2850000},
+    )
+    realized_pl = fields.Float(
+        required=True,
+        metadata={"description": "実現損益の合計。損失なら負。", "example": 318750},
+    )
+    realized_pl_percent = fields.Float(
+        required=True,
+        metadata={
+            "description": "取得原価の合計に対する実現損益率（％）",
+            "example": 11.18,
+        },
+    )
+    sell_count = fields.Int(
+        required=True, validate=NON_NEGATIVE,
+        metadata={"description": "合計の対象になった売却取引の件数", "example": 42},
+    )
+    currency = fields.Str(required=True, metadata={"example": "JPY"})
+
+
 class TransactionPageSchema(Schema):
     """取引履歴（ページング付き）。UI の「Page 1 of 5」に対応する。"""
 
     items = fields.List(fields.Nested(TransactionSchema), required=True)
+    totals = fields.Nested(TransactionTotalsSchema, required=True)
     pagination = fields.Nested(PaginationSchema, required=True)
 
 
@@ -129,10 +176,6 @@ class TransactionQuerySchema(DateRangeQueryMixin, PaginationQueryMixin, Schema):
             "description": "資産クラスで絞り込む。省略時は全件（UI の `Asset Class: All`）。",
             "example": "stock",
         },
-    )
-    status = fields.Enum(
-        TransactionStatus, by_value=True,
-        metadata={"description": "約定ステータスで絞り込む", "example": "completed"},
     )
     start_date = fields.Date(
         metadata={
