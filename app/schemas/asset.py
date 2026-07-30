@@ -21,9 +21,6 @@ class AssetSchema(Schema):
         required=True, validate=POSITIVE_ID,
         metadata={"description": "Asset ID", "example": 1},
     )
-    user_id = fields.Int(
-        required=True, validate=POSITIVE_ID, metadata={"example": 101}
-    )
     portfolio_id = fields.Int(
         required=True, validate=POSITIVE_ID, metadata={"example": 1}
     )

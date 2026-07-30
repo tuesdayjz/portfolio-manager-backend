@@ -9,11 +9,11 @@ from flask_smorest import Blueprint, abort
 from app.api.parameters import PORTFOLIO_ID
 from app.schemas.holding import HoldingSchema, HoldingsQuerySchema
 from app.schemas.portfolio import (
+    AllocationQuerySchema,
     PerformanceGraphSchema,
     PerformanceQuerySchema,
     PortfolioAllocationSchema,
     PortfolioCreateSchema,
-    PortfolioQuerySchema,
     PortfolioSchema,
     PortfolioSummarySchema,
 )
@@ -40,10 +40,9 @@ class PortfolioCollection(MethodView):
 
 @blp.route("/<int:portfolio_id>/summary", parameters=[PORTFOLIO_ID])
 class PortfolioSummary(MethodView):
-    @blp.arguments(PortfolioQuerySchema, location="query")
     @blp.response(200, PortfolioSummarySchema)
     @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
-    def get(self, args, portfolio_id):
+    def get(self, portfolio_id):
         """ポートフォリオサマリーを取得する。
 
         取得価額・評価額・総資産・含み損益を返す。評価額の市場価格は
@@ -69,14 +68,14 @@ class PortfolioHoldings(MethodView):
 
 @blp.route("/<int:portfolio_id>/allocation", parameters=[PORTFOLIO_ID])
 class PortfolioAllocation(MethodView):
-    @blp.arguments(PortfolioQuerySchema, location="query")
+    @blp.arguments(AllocationQuerySchema, location="query")
     @blp.response(200, PortfolioAllocationSchema)
     @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
     def get(self, args, portfolio_id):
         """資産配分を取得する。
 
-        資産種別・通貨・銘柄それぞれの内訳を返す。評価額計算の市場価格は
-        Yahoo Finance から取得する想定。
+        `group_by` で指定した 1 つの基準（資産クラス・通貨・銘柄・セクター）で
+        集計した内訳を返す。評価額計算の市場価格は Yahoo Finance から取得する想定。
         """
         abort(501, message=NOT_IMPLEMENTED)
 

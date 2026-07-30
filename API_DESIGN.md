@@ -31,13 +31,14 @@ record portfolio transactions and update current holdings.
 
 ## Data Access Rules
 
-- User-owned portfolio data must be filtered by `user_id`.
-- During mock/development, private `GET` APIs require `user_id` as a query
-  parameter.
-- `portfolio_id` is required in the path for private portfolio data.
-- In production, the backend can get `user_id` from login/auth instead of query
-  parameters.
-- Public asset/market data does not require `user_id`.
+- `portfolio_id` in the path is the only identifier a client sends for private
+  portfolio data. Requests never carry `user_id`.
+- The backend resolves the owner from login/auth and checks it against
+  `portfolio.user_id`. A portfolio owned by someone else is a 404, not a 403,
+  so the API does not leak which portfolio ids exist.
+- User-owned portfolio data is still filtered by `user_id` internally; that is a
+  server-side concern backed by the `portfolio.user_id` column.
+- Public asset/market data is not scoped to a portfolio at all.
 
 ## Swagger Sections
 
@@ -104,13 +105,12 @@ Supabase session/token on the client side.
 
 `POST /portfolios/`
 
-Creates a mock portfolio.
+Creates a mock portfolio. The owner comes from login/auth, not the body.
 
 Request:
 
 ```json
 {
-  "user_id": 202,
   "name": "Main Portfolio",
   "currency": "JPY",
   "cash_balance": 500000
@@ -121,7 +121,6 @@ Response:
 
 ```json
 {
-  "user_id": 202,
   "name": "Main Portfolio",
   "currency": "JPY",
   "cash_balance": 500000,
@@ -137,12 +136,11 @@ gain/loss for one portfolio.
 Request:
 
 ```text
-GET /portfolios/1/summary?user_id=101
+GET /portfolios/1/summary
 ```
 
 Notes:
 
-- `user_id` is required for mock owner checking.
 - Market value uses Yahoo Finance or `asset_data_history` prices, not
   `holdings`.
 - `cash_balance` is mock-only because the current Supabase schema has no cash
@@ -156,12 +154,11 @@ portfolio can contain multiple assets.
 Request:
 
 ```text
-GET /portfolios/1/holdings?user_id=101
+GET /portfolios/1/holdings
 ```
 
 Supports filters:
 
-- `user_id` required
 - `asset_id`
 
 Important data boundary:
@@ -172,12 +169,42 @@ Important data boundary:
 
 `GET /portfolios/{portfolio_id}/allocation`
 
-Returns allocation by asset type, currency, and individual asset.
+Returns allocation for one grouping. `group_by` is required and takes one of
+`asset_type`, `currency`, `asset`, or `sector`. There is no combined response;
+a screen that shows more than one grouping calls this endpoint once per
+grouping.
+
+`target_weight` and `deviation` are only filled in for `group_by=asset_type`;
+they are null for the other groupings and for asset types with no target set.
+`group_by=sector` covers equities only, so its `total_value` is smaller than the
+portfolio total whenever non-equity assets are held.
 
 Request:
 
 ```text
-GET /portfolios/1/allocation?user_id=101
+GET /portfolios/1/allocation?group_by=asset_type
+```
+
+Response:
+
+```json
+{
+  "portfolio_id": 1,
+  "group_by": "asset_type",
+  "currency": "JPY",
+  "total_value": 5860000,
+  "items": [
+    {
+      "name": "stock",
+      "value": 4220000,
+      "weight": 0.72,
+      "holdings_count": 12,
+      "target_weight": 0.7,
+      "deviation": 0.02
+    }
+  ],
+  "as_of": "2026-07-30T14:25:00"
+}
 ```
 
 `GET /portfolios/{portfolio_id}/performance`
@@ -187,14 +214,13 @@ Returns graph-ready portfolio performance points.
 Request:
 
 ```text
-GET /portfolios/1/performance?user_id=101&start_date=2026-07-26&end_date=2026-07-28&interval=1d
+GET /portfolios/1/performance?start_date=2026-07-26&end_date=2026-07-28&interval=1d
 ```
 
 Response:
 
 ```json
 {
-  "user_id": 101,
   "portfolio_id": 1,
   "currency": "JPY",
   "interval": "1d",
@@ -241,12 +267,11 @@ Returns one user's transaction history for one portfolio.
 Request:
 
 ```text
-GET /portfolios/1/transactions?user_id=101
+GET /portfolios/1/transactions
 ```
 
 Supports filters:
 
-- `user_id` required
 - `asset_id`
 - `start_date`
 - `end_date`
@@ -266,7 +291,6 @@ Request:
 
 ```json
 {
-  "user_id": 101,
   "asset_id": 1,
   "transaction_type": "buy",
   "quantity": 2,
@@ -293,7 +317,6 @@ Request:
 
 ```json
 {
-  "user_id": 101,
   "transactions": [
     {
       "asset_id": 1,

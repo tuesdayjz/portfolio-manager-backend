@@ -9,7 +9,7 @@ from flask_smorest import Blueprint, abort
 from app.api.parameters import PORTFOLIO_ID
 from app.schemas.transaction import (
     TransactionBatchCreateSchema,
-    TransactionCreateSchema,
+    TransactionItemSchema,
     TransactionQuerySchema,
     TransactionSchema,
 )
@@ -38,7 +38,7 @@ class TransactionCollection(MethodView):
         """
         abort(501, message=NOT_IMPLEMENTED)
 
-    @blp.arguments(TransactionCreateSchema)
+    @blp.arguments(TransactionItemSchema)
     @blp.response(201, TransactionSchema)
     @blp.alt_response(400, description="Cannot sell more than current holding")
     @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)

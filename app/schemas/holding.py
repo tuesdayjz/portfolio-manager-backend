@@ -18,9 +18,6 @@ class HoldingSchema(Schema):
     評価損益も市場価格から都度計算するため保存しない。
     """
 
-    user_id = fields.Int(
-        required=True, validate=POSITIVE_ID, metadata={"example": 101}
-    )
     portfolio_id = fields.Int(
         required=True, validate=POSITIVE_ID, metadata={"example": 1}
     )
@@ -39,7 +36,7 @@ class HoldingSchema(Schema):
     asset_type = fields.Str(
         required=True, validate=validate.Length(max=20),
         metadata={
-            "description": "資産クラス。配分表の `by_asset_type` と同じ区分。",
+            "description": "資産クラス。配分の `group_by=asset_type` と同じ区分。",
             "example": "stock",
         },
     )
@@ -130,10 +127,6 @@ class HoldingsPageSchema(Schema):
 class HoldingsQuerySchema(PaginationQueryMixin, Schema):
     """GET /portfolios/{portfolio_id}/holdings のクエリパラメータ。"""
 
-    user_id = fields.Int(
-        required=True, validate=POSITIVE_ID,
-        metadata={"description": "User ID", "example": 101},
-    )
     asset_id = fields.Int(
         validate=POSITIVE_ID,
         metadata={"description": "特定銘柄の保有残高だけを返す", "example": 1},

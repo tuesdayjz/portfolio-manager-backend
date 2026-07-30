@@ -14,7 +14,10 @@ from app.schemas.common import (
 
 
 class TransactionItemSchema(Schema):
-    """一括登録の 1 件分。`user_id` はリクエスト全体で 1 つなので持たない。"""
+    """取引 1 件分の登録内容。単件登録のボディと一括登録の 1 要素に使う。
+
+    所属先は `portfolio_id` がパスから決まるので、ボディには持たない。
+    """
 
     asset_id = fields.Int(
         required=True, validate=POSITIVE_ID, metadata={"example": 1}
@@ -45,15 +48,7 @@ class TransactionItemSchema(Schema):
     )
 
 
-class TransactionCreateSchema(TransactionItemSchema):
-    """取引の新規登録（単件）。"""
-
-    user_id = fields.Int(
-        required=True, validate=POSITIVE_ID, metadata={"example": 101}
-    )
-
-
-class TransactionSchema(TransactionCreateSchema):
+class TransactionSchema(TransactionItemSchema):
     """取引（レスポンス）。`portfolio_id` はパスから、`transaction_id` は採番される。"""
 
     portfolio_id = fields.Int(
@@ -100,9 +95,6 @@ class TransactionPageSchema(Schema):
 class TransactionBatchCreateSchema(Schema):
     """取引の一括登録。全件を検証してから保有残高を更新する。"""
 
-    user_id = fields.Int(
-        required=True, validate=POSITIVE_ID, metadata={"example": 101}
-    )
     transactions = fields.List(
         fields.Nested(TransactionItemSchema),
         required=True,
@@ -113,10 +105,6 @@ class TransactionBatchCreateSchema(Schema):
 class TransactionQuerySchema(DateRangeQueryMixin, PaginationQueryMixin, Schema):
     """GET /portfolios/{portfolio_id}/transactions のクエリパラメータ。"""
 
-    user_id = fields.Int(
-        required=True, validate=POSITIVE_ID,
-        metadata={"description": "User ID", "example": 101},
-    )
     asset_id = fields.Int(
         validate=POSITIVE_ID,
         metadata={"description": "特定銘柄の取引だけを返す", "example": 1},

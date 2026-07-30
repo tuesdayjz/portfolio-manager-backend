@@ -13,7 +13,7 @@ components:
             $ref: '#/components/schemas/Error'
       description: Unprocessable Content
   schemas:
-    AllocationDriftItem:
+    AllocationItem:
       additionalProperties: false
       properties:
         deviation:
@@ -22,11 +22,12 @@ components:
           nullable: true
           type: number
         holdings_count:
-          description: この資産クラスの保有銘柄数
+          description: この区分に含まれる保有銘柄数
           example: 12
           minimum: 0
           type: integer
         name:
+          description: 集計基準ごとの区分名（資産クラス名・通貨コード・銘柄名・セクター名）
           example: stock
           type: string
         target_weight:
@@ -47,26 +48,6 @@ components:
           type: number
       required:
       - holdings_count
-      - name
-      - value
-      - weight
-      type: object
-    AllocationItem:
-      additionalProperties: false
-      properties:
-        name:
-          example: stock
-          type: string
-        value:
-          example: 4220000
-          minimum: 0.0
-          type: number
-        weight:
-          example: 0.72
-          maximum: 1.0
-          minimum: 0.0
-          type: number
-      required:
       - name
       - value
       - weight
@@ -153,25 +134,6 @@ components:
       - email
       - user_id
       type: object
-    Benchmark:
-      additionalProperties: false
-      properties:
-        name:
-          example: S&P 500
-          type: string
-        return_percent:
-          description: 対象期間の指数騰落率（％）。UI の「S&P 500 (+8.2% YTD)」。
-          example: 8.2
-          type: number
-        symbol:
-          description: Yahoo Finance symbol
-          example: ^GSPC
-          type: string
-      required:
-      - name
-      - return_percent
-      - symbol
-      type: object
     Error:
       additionalProperties: false
       properties:
@@ -198,7 +160,7 @@ components:
           minimum: 1
           type: integer
         asset_type:
-          description: 資産クラス。配分表の `by_asset_type` と同じ区分。
+          description: 資産クラス。配分の `group_by=asset_type` と同じ区分。
           example: stock
           maxLength: 20
           type: string
@@ -255,10 +217,6 @@ components:
           description: 取得原価に対する損益率（％）
           example: 171.98
           type: number
-        user_id:
-          example: 101
-          minimum: 1
-          type: integer
       required:
       - asset_id
       - asset_type
@@ -273,7 +231,6 @@ components:
       - symbol
       - total_return
       - total_return_percent
-      - user_id
       type: object
     LoginRequest:
       additionalProperties: false
@@ -299,32 +256,6 @@ components:
       required:
       - message
       type: object
-    MonthlyReturn:
-      additionalProperties: false
-      properties:
-        benchmark_return_percent:
-          example: 1.6
-          nullable: true
-          type: number
-        excess_return_percent:
-          description: ベンチマークに対する超過リターン（portfolio_return_percent − benchmark_return_percent）
-          example: 0.81
-          nullable: true
-          type: number
-        month:
-          description: 対象月（YYYY-MM）
-          example: 2026-05
-          pattern: ^\d{4}-\d{2}$
-          type: string
-        portfolio_return_percent:
-          example: 2.41
-          type: number
-      required:
-      - benchmark_return_percent
-      - excess_return_percent
-      - month
-      - portfolio_return_percent
-      type: object
     PaginationMetadata:
       additionalProperties: false
       properties:
@@ -343,15 +274,24 @@ components:
         total_pages:
           type: integer
       type: object
+    PerformanceChange:
+      additionalProperties: false
+      properties:
+        amount:
+          description: 損益額
+          example: 149832.5
+          type: number
+        percent:
+          description: 損益率（％）
+          example: 12.4
+          type: number
+      required:
+      - amount
+      - percent
+      type: object
     PerformanceGraph:
       additionalProperties: false
       properties:
-        benchmark:
-          anyOf:
-          - $ref: '#/components/schemas/Benchmark'
-          - nullable: true
-            type: object
-          description: benchmark 未指定なら null
         currency:
           example: JPY
           type: string
@@ -367,11 +307,6 @@ components:
           example: 1d
         metrics:
           $ref: '#/components/schemas/PerformanceMetrics'
-        monthly_returns:
-          description: 新しい月が先頭。対象期間に満たない月は含めない。
-          items:
-            $ref: '#/components/schemas/MonthlyReturn'
-          type: array
         points:
           items:
             $ref: '#/components/schemas/PerformanceGraphPoint'
@@ -397,20 +332,14 @@ components:
           example: '2026-01-01'
           format: date
           type: string
-        user_id:
-          example: 101
-          minimum: 1
-          type: integer
       required:
       - currency
       - end_date
       - interval
       - metrics
-      - monthly_returns
       - points
       - portfolio_id
       - start_date
-      - user_id
       type: object
     PerformanceGraphPoint:
       additionalProperties: false
@@ -445,55 +374,28 @@ components:
     PerformanceMetrics:
       additionalProperties: false
       properties:
-        best_performer:
-          anyOf:
-          - nullable: true
-            type: object
-          - $ref: '#/components/schemas/Performer'
-        sharpe_ratio:
-          description: リスク調整後リターン。日次リターンの平均÷標準偏差を年率換算する。
-          example: 1.42
-          nullable: true
+        portfolio_value:
+          description: 期間終了時点の評価額。現金を含む総資産額。
+          example: 1247832.5
+          minimum: 0.0
           type: number
+        return:
+          allOf:
+          - $ref: '#/components/schemas/PerformanceChange'
+          description: '`range`（または start_date / end_date）で指定した対象期間の損益'
+        today:
+          allOf:
+          - $ref: '#/components/schemas/PerformanceChange'
+          description: 前日終値からの騰落
         total_return:
-          description: 対象期間の損益額
-          example: 149832.5
-          type: number
-        total_return_percent:
-          description: 対象期間の損益率（％）
-          example: 12.4
-          type: number
-        worst_performer:
-          anyOf:
-          - nullable: true
-            type: object
-          - $ref: '#/components/schemas/Performer'
+          allOf:
+          - $ref: '#/components/schemas/PerformanceChange'
+          description: 運用開始来（全期間）の損益。対象期間の影響を受けない。
       required:
+      - portfolio_value
+      - return
+      - today
       - total_return
-      - total_return_percent
-      type: object
-    Performer:
-      additionalProperties: false
-      properties:
-        asset_id:
-          example: 1
-          minimum: 1
-          type: integer
-        name:
-          example: Toyota Motor Corp.
-          type: string
-        return_percent:
-          description: 対象期間の損益率（％）
-          example: 48.2
-          type: number
-        symbol:
-          example: 7203.T
-          type: string
-      required:
-      - asset_id
-      - name
-      - return_percent
-      - symbol
       type: object
     Portfolio:
       additionalProperties: false
@@ -515,15 +417,10 @@ components:
           example: 1
           minimum: 1
           type: integer
-        user_id:
-          example: 101
-          minimum: 1
-          type: integer
       required:
       - currency
       - name
       - portfolio_id
-      - user_id
       type: object
     PortfolioAllocation:
       additionalProperties: false
@@ -533,30 +430,39 @@ components:
           example: '2026-07-30T14:25:00'
           format: date-time
           type: string
-        by_asset:
+        currency:
+          description: 評価額の通貨（基準通貨）
+          example: JPY
+          type: string
+        group_by:
+          description: 集計基準
+          enum:
+          - asset_type
+          - currency
+          - asset
+          - sector
+          example: asset_type
+        items:
+          description: '`value` の降順'
           items:
             $ref: '#/components/schemas/AllocationItem'
           type: array
-        by_asset_type:
-          description: 資産クラス別。目標比率と乖離を含む。
-          items:
-            $ref: '#/components/schemas/AllocationDriftItem'
-          type: array
-        by_currency:
-          items:
-            $ref: '#/components/schemas/AllocationItem'
-          type: array
-        by_sector:
-          description: 株式のセクター別配分（Equity Sector Exposure）
-          items:
-            $ref: '#/components/schemas/AllocationItem'
-          type: array
+        portfolio_id:
+          example: 1
+          minimum: 1
+          type: integer
+        total_value:
+          description: '`items` の value 合計。ドーナツ中央の Total Value。`group_by=sector` では株式ぶんだけの合計になる。'
+          example: 5860000
+          minimum: 0.0
+          type: number
       required:
       - as_of
-      - by_asset
-      - by_asset_type
-      - by_currency
-      - by_sector
+      - currency
+      - group_by
+      - items
+      - portfolio_id
+      - total_value
       type: object
     PortfolioCreate:
       additionalProperties: false
@@ -574,14 +480,9 @@ components:
         name:
           example: Main Portfolio
           type: string
-        user_id:
-          example: 101
-          minimum: 1
-          type: integer
       required:
       - currency
       - name
-      - user_id
       type: object
     PortfolioSummary:
       additionalProperties: false
@@ -640,9 +541,6 @@ components:
           description: 取得原価に対する損益率（％）。ヘッダーの Total Return。
           example: 8.17
           type: number
-        user_id:
-          example: 101
-          type: integer
       required:
       - as_of
       - asset_type_count
@@ -657,7 +555,6 @@ components:
       - total_purchase_value
       - unrealized_gain_loss
       - unrealized_gain_loss_percent
-      - user_id
       type: object
     PriceHistoryItem:
       additionalProperties: false
@@ -783,10 +680,6 @@ components:
           - buy
           - sell
           example: buy
-        user_id:
-          example: 101
-          minimum: 1
-          type: integer
       required:
       - asset_id
       - asset_type
@@ -801,7 +694,6 @@ components:
       - total_amount
       - transaction_id
       - transaction_type
-      - user_id
       type: object
     TransactionBatchCreate:
       additionalProperties: false
@@ -811,62 +703,8 @@ components:
             $ref: '#/components/schemas/TransactionItem'
           minItems: 1
           type: array
-        user_id:
-          example: 101
-          minimum: 1
-          type: integer
       required:
       - transactions
-      - user_id
-      type: object
-    TransactionCreate:
-      additionalProperties: false
-      properties:
-        asset_id:
-          example: 1
-          minimum: 1
-          type: integer
-        date:
-          example: '2026-05-26T18:00:00'
-          format: date-time
-          type: string
-        fees:
-          default: 0.0
-          example: 0.0
-          minimum: 0.0
-          type: number
-        price:
-          example: 2980.5
-          minimum: 0.0
-          type: number
-        quantity:
-          example: 5.4
-          exclusiveMinimum: true
-          minimum: 0.0
-          type: number
-        status:
-          default: completed
-          description: '`pending` の取引は保有残高に反映しない。'
-          enum:
-          - completed
-          - pending
-          example: completed
-        transaction_type:
-          enum:
-          - buy
-          - sell
-          example: buy
-        user_id:
-          example: 101
-          minimum: 1
-          type: integer
-      required:
-      - asset_id
-      - date
-      - price
-      - quantity
-      - transaction_type
-      - user_id
       type: object
     TransactionItem:
       additionalProperties: false
@@ -930,8 +768,7 @@ info:
     実際の証券発注は行わない。売買は取引履歴の記録と保有残高の更新だけを行う。
 
 
-    private なデータは `user_id` で絞り込む。モック／開発中は private な GET API に `user_id` をクエリパラメータで渡す。本番ではログイン情報から
-    `user_id` を解決する想定。公開の資産・市場データに `user_id` は不要。'
+    private なデータはパスの `portfolio_id` で特定する。所有者はログイン情報から 解決するので、`user_id` をクライアントから渡す必要はない。公開の資産・市場データはポートフォリオに紐づかない。'
   title: Portfolio Manager API
   version: 1.0.0
 openapi: 3.0.3
@@ -1113,18 +950,21 @@ paths:
       - portfolio
   /api/v1/portfolios/{portfolio_id}/allocation:
     get:
-      description: '資産種別・通貨・銘柄それぞれの内訳を返す。評価額計算の市場価格は
+      description: '`group_by` で指定した 1 つの基準（資産クラス・通貨・銘柄・セクター）で
 
-        Yahoo Finance から取得する想定。'
+        集計した内訳を返す。評価額計算の市場価格は Yahoo Finance から取得する想定。'
       parameters:
-      - description: User ID
+      - description: 集計基準
         in: query
-        name: user_id
+        name: group_by
         required: true
         schema:
-          example: 101
-          minimum: 1
-          type: integer
+          enum:
+          - asset_type
+          - currency
+          - asset
+          - sector
+          example: asset_type
       responses:
         '200':
           content:
@@ -1173,14 +1013,6 @@ paths:
           default: 20
           example: 20
           maximum: 100
-          minimum: 1
-          type: integer
-      - description: User ID
-        in: query
-        name: user_id
-        required: true
-        schema:
-          example: 101
           minimum: 1
           type: integer
       - description: 特定銘柄の保有残高だけを返す
@@ -1249,14 +1081,6 @@ paths:
 
         Yahoo Finance の価格データで評価額と含み損益を計算する想定。'
       parameters:
-      - description: User ID
-        in: query
-        name: user_id
-        required: true
-        schema:
-          example: 101
-          minimum: 1
-          type: integer
       - in: query
         name: start_date
         required: false
@@ -1338,15 +1162,6 @@ paths:
         Yahoo Finance または `asset_data_history` から取得する想定で、
 
         `holdings` には保存しない。'
-      parameters:
-      - description: User ID
-        in: query
-        name: user_id
-        required: true
-        schema:
-          example: 101
-          minimum: 1
-          type: integer
       responses:
         '200':
           content:
@@ -1356,8 +1171,6 @@ paths:
           description: OK
         '404':
           description: The specified portfolio does not exist
-        '422':
-          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
       summary: ポートフォリオサマリーを取得する。
@@ -1395,14 +1208,6 @@ paths:
           default: 20
           example: 20
           maximum: 100
-          minimum: 1
-          type: integer
-      - description: User ID
-        in: query
-        name: user_id
-        required: true
-        schema:
-          example: 101
           minimum: 1
           type: integer
       - description: 特定銘柄の取引だけを返す
@@ -1499,7 +1304,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TransactionCreate'
+              $ref: '#/components/schemas/TransactionItem'
         required: true
       responses:
         '201':

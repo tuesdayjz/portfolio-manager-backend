@@ -49,6 +49,21 @@ class PerformanceRange(enum.Enum):
     ALL = "all"
 
 
+class AllocationGroupBy(enum.Enum):
+    """資産配分の集計基準。
+
+    - ``asset_type`` : 資産クラス別。目標比率と乖離もあわせて返す。
+    - ``currency``   : 通貨別。
+    - ``asset``      : 個別銘柄別。
+    - ``sector``     : 株式のセクター別。セクターを持たない資産は集計から除く。
+    """
+
+    ASSET_TYPE = "asset_type"
+    CURRENCY = "currency"
+    ASSET = "asset"
+    SECTOR = "sector"
+
+
 class Theme(enum.Enum):
     """UI のカラーテーマ。"""
 

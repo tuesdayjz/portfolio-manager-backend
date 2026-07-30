@@ -26,20 +26,6 @@ class ErrorSchema(Schema):
     )
 
 
-class UserIdQuerySchema(Schema):
-    """所有者チェック用の `user_id`。
-
-    モック／開発中は private な API に `user_id` をクエリパラメータで渡す。
-    本番ではログイン情報から解決する想定なので、その際はこのスキーマを外す。
-    """
-
-    user_id = fields.Int(
-        required=True,
-        validate=POSITIVE_ID,
-        metadata={"description": "User ID", "example": 101},
-    )
-
-
 class DateRangeQueryMixin:
     """`start_date` / `end_date` を持つクエリスキーマ用の検証。"""
 
