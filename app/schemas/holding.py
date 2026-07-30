@@ -14,8 +14,8 @@ class HoldingSchema(Schema):
     """1 銘柄あたりの保有残高（レスポンス）。
 
     数量と平均取得単価は Supabase `holdings` の値。`current_price` は
-    Yahoo Finance 由来の市場価格で、`holdings` には保存しない。評価額・騰落率・
-    評価損益も市場価格から都度計算するため保存しない。
+    Yahoo Finance 由来の市場価格で、`holdings` には保存しない。評価額と騰落率も
+    市場価格から都度計算するため保存しない。
     """
 
     portfolio_id = fields.Int(
@@ -76,17 +76,6 @@ class HoldingSchema(Schema):
             "example": 1.8,
         },
     )
-    total_return = fields.Float(
-        required=True,
-        metadata={
-            "description": "評価損益（評価額 − 取得原価）。損失なら負。",
-            "example": 16019.95,
-        },
-    )
-    total_return_percent = fields.Float(
-        required=True,
-        metadata={"description": "取得原価に対する損益率（％）", "example": 171.98},
-    )
     currency = fields.Str(
         required=True, metadata={"description": "通貨", "example": "JPY"}
     )
@@ -96,18 +85,26 @@ class HoldingsTotalSchema(Schema):
     """Positions 画面の合計行（Total Positions Valuation）。
 
     ページングしても値が変わらないよう、フィルタ適用後の全件で集計する。
+    損益は当日ぶん（前日終値からの騰落）だけを返す。
     """
 
     market_value = fields.Float(
         required=True, validate=NON_NEGATIVE,
         metadata={"description": "評価額の合計", "example": 4220000},
     )
-    total_return = fields.Float(
-        required=True, metadata={"description": "評価損益の合計", "example": 318750}
-    )
-    total_return_percent = fields.Float(
+    day_change = fields.Float(
         required=True,
-        metadata={"description": "取得原価に対する損益率（％）", "example": 8.17},
+        metadata={
+            "description": "前日終値からの評価損益の変化額の合計。下落なら負。",
+            "example": 42150,
+        },
+    )
+    day_change_percent = fields.Float(
+        required=True,
+        metadata={
+            "description": "前日終値の評価額合計に対する騰落率（％）。下落なら負。",
+            "example": 1.01,
+        },
     )
     currency = fields.Str(required=True, metadata={"example": "JPY"})
 

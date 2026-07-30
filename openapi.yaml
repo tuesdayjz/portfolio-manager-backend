@@ -16,11 +16,6 @@ components:
     AllocationItem:
       additionalProperties: false
       properties:
-        deviation:
-          description: 目標との差（weight − target_weight）
-          example: 0.05
-          nullable: true
-          type: number
         holdings_count:
           description: この区分に含まれる保有銘柄数
           example: 12
@@ -30,13 +25,6 @@ components:
           description: 集計基準ごとの区分名（資産クラス名・通貨コード・銘柄名・セクター名）
           example: stock
           type: string
-        target_weight:
-          description: 目標構成比（0〜1）
-          example: 0.4
-          maximum: 1.0
-          minimum: 0.0
-          nullable: true
-          type: number
         value:
           example: 4220000
           minimum: 0.0
@@ -209,14 +197,6 @@ components:
           description: Yahoo Finance symbol
           example: 7203.T
           type: string
-        total_return:
-          description: 評価損益（評価額 − 取得原価）。損失なら負。
-          example: 16019.95
-          type: number
-        total_return_percent:
-          description: 取得原価に対する損益率（％）
-          example: 171.98
-          type: number
       required:
       - asset_id
       - asset_type
@@ -229,8 +209,47 @@ components:
       - portfolio_id
       - quantity
       - symbol
-      - total_return
-      - total_return_percent
+      type: object
+    HoldingsPage:
+      additionalProperties: false
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/Holding'
+          type: array
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        totals:
+          $ref: '#/components/schemas/HoldingsTotal'
+      required:
+      - items
+      - pagination
+      - totals
+      type: object
+    HoldingsTotal:
+      additionalProperties: false
+      properties:
+        currency:
+          example: JPY
+          type: string
+        day_change:
+          description: 前日終値からの評価損益の変化額の合計。下落なら負。
+          example: 42150
+          type: number
+        day_change_percent:
+          description: 前日終値の評価額合計に対する騰落率（％）。下落なら負。
+          example: 1.01
+          type: number
+        market_value:
+          description: 評価額の合計
+          example: 4220000
+          minimum: 0.0
+          type: number
+      required:
+      - currency
+      - day_change
+      - day_change_percent
+      - market_value
       type: object
     LoginRequest:
       additionalProperties: false
@@ -498,16 +517,6 @@ components:
     PortfolioSummary:
       additionalProperties: false
       properties:
-        as_of:
-          description: 評価に使った市場価格の時刻
-          example: '2026-07-30T14:25:00'
-          format: date-time
-          type: string
-        asset_type_count:
-          description: 資産クラス数。UI の「6 Asset Classes」。
-          example: 6
-          minimum: 0
-          type: integer
         cash_balance:
           description: Mock-only cash value; current Supabase schema has no cash balance
             column
@@ -517,55 +526,23 @@ components:
         currency:
           example: JPY
           type: string
-        day_change:
-          description: 前日終値からの評価損益の変化額
-          example: 42150
-          type: number
-        day_change_percent:
-          description: 前日終値からの騰落率（％）
-          example: 1.01
-          type: number
-        holdings_count:
-          description: 保有銘柄数
-          example: 24
-          minimum: 0
-          type: integer
         portfolio_id:
           example: 1
           type: integer
-        total_asset_value:
-          example: 5470000
-          minimum: 0.0
-          type: number
         total_market_value:
           example: 4220000
           minimum: 0.0
           type: number
-        total_purchase_value:
-          example: 3901250
-          minimum: 0.0
-          type: number
-        unrealized_gain_loss:
-          example: 318750
-          type: number
-        unrealized_gain_loss_percent:
+        total_return_percent:
           description: 取得原価に対する損益率（％）。ヘッダーの Total Return。
           example: 8.17
           type: number
       required:
-      - as_of
-      - asset_type_count
       - cash_balance
       - currency
-      - day_change
-      - day_change_percent
-      - holdings_count
       - portfolio_id
-      - total_asset_value
       - total_market_value
-      - total_purchase_value
-      - unrealized_gain_loss
-      - unrealized_gain_loss_percent
+      - total_return_percent
       type: object
     PriceHistoryItem:
       additionalProperties: false
@@ -1043,7 +1020,9 @@ paths:
         type: integer
   /api/v1/portfolios/{portfolio_id}/holdings:
     get:
-      description: '1 つのポートフォリオに含まれる複数の資産を返す。`current_price` は
+      description: '1 つのポートフォリオに含まれる複数の資産を `items` に、フィルタ適用後の
+
+        全件を集計した合計行を `totals` に入れて返す。`current_price` は
 
         Yahoo Finance 由来の市場価格で、Supabase holdings には保存しない。'
       parameters:
@@ -1104,9 +1083,7 @@ paths:
           content:
             application/json:
               schema:
-                items:
-                  $ref: '#/components/schemas/Holding'
-                type: array
+                $ref: '#/components/schemas/HoldingsPage'
           description: OK
         '404':
           description: The specified portfolio does not exist
@@ -1201,7 +1178,7 @@ paths:
         type: integer
   /api/v1/portfolios/{portfolio_id}/summary:
     get:
-      description: '取得価額・評価額・総資産・含み損益を返す。評価額の市場価格は
+      description: '現金残高・評価額・損益率を返す。評価額の市場価格は
 
         Yahoo Finance または `asset_data_history` から取得する想定で、
 

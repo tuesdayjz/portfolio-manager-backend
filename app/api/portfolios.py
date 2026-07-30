@@ -7,7 +7,7 @@ from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 
 from app.api.parameters import PORTFOLIO_ID
-from app.schemas.holding import HoldingSchema, HoldingsQuerySchema
+from app.schemas.holding import HoldingsPageSchema, HoldingsQuerySchema
 from app.schemas.portfolio import (
     AllocationQuerySchema,
     PerformanceGraphSchema,
@@ -45,7 +45,7 @@ class PortfolioSummary(MethodView):
     def get(self, portfolio_id):
         """ポートフォリオサマリーを取得する。
 
-        取得価額・評価額・総資産・含み損益を返す。評価額の市場価格は
+        現金残高・評価額・損益率を返す。評価額の市場価格は
         Yahoo Finance または `asset_data_history` から取得する想定で、
         `holdings` には保存しない。
         """
@@ -55,12 +55,13 @@ class PortfolioSummary(MethodView):
 @blp.route("/<int:portfolio_id>/holdings", parameters=[PORTFOLIO_ID])
 class PortfolioHoldings(MethodView):
     @blp.arguments(HoldingsQuerySchema, location="query")
-    @blp.response(200, HoldingSchema(many=True))
+    @blp.response(200, HoldingsPageSchema)
     @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
     def get(self, args, portfolio_id):
         """保有残高一覧を取得する。
 
-        1 つのポートフォリオに含まれる複数の資産を返す。`current_price` は
+        1 つのポートフォリオに含まれる複数の資産を `items` に、フィルタ適用後の
+        全件を集計した合計行を `totals` に入れて返す。`current_price` は
         Yahoo Finance 由来の市場価格で、Supabase holdings には保存しない。
         """
         abort(501, message=NOT_IMPLEMENTED)

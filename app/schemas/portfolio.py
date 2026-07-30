@@ -38,6 +38,7 @@ class PortfolioSummarySchema(Schema):
     """ポートフォリオサマリー。
 
     評価額は Yahoo Finance または `asset_data_history` の価格で計算する。
+    ヘッダー表示に必要な最小限の項目だけを返す。
     """
 
     portfolio_id = fields.Int(required=True, metadata={"example": 1})
@@ -46,57 +47,20 @@ class PortfolioSummarySchema(Schema):
         required=True, validate=NON_NEGATIVE,
         metadata={"description": _CASH_BALANCE_NOTE, "example": 1250000},
     )
-    total_purchase_value = fields.Float(
-        required=True, validate=NON_NEGATIVE, metadata={"example": 3901250}
-    )
     total_market_value = fields.Float(
         required=True, validate=NON_NEGATIVE, metadata={"example": 4220000}
     )
-    total_asset_value = fields.Float(
-        required=True, validate=NON_NEGATIVE, metadata={"example": 5470000}
-    )
-    unrealized_gain_loss = fields.Float(required=True, metadata={"example": 318750})
-    unrealized_gain_loss_percent = fields.Float(
+    total_return_percent = fields.Float(
         required=True,
         metadata={
             "description": "取得原価に対する損益率（％）。ヘッダーの Total Return。",
             "example": 8.17,
         },
     )
-    day_change = fields.Float(
-        required=True,
-        metadata={"description": "前日終値からの評価損益の変化額", "example": 42150}
-    )
-    day_change_percent = fields.Float(
-        required=True,
-        metadata={"description": "前日終値からの騰落率（％）", "example": 1.01},
-    )
-    holdings_count = fields.Int(
-        required=True, validate=NON_NEGATIVE,
-        metadata={"description": "保有銘柄数", "example": 24},
-    )
-    asset_type_count = fields.Int(
-        required=True, validate=NON_NEGATIVE,
-        metadata={
-            "description": "資産クラス数。UI の「6 Asset Classes」。",
-            "example": 6,
-        },
-    )
-    as_of = fields.DateTime(
-        required=True,
-        metadata={
-            "description": "評価に使った市場価格の時刻",
-            "example": "2026-07-30T14:25:00",
-        },
-    )
 
 
 class AllocationItemSchema(Schema):
-    """配分の 1 項目。`weight` は 0〜1 の割合。
-
-    `target_weight` と `deviation` は `group_by=asset_type` のときだけ入る。
-    それ以外の集計基準、および目標を設定していない資産クラスでは null。
-    """
+    """配分の 1 項目。`weight` は 0〜1 の割合。"""
 
     name = fields.Str(
         required=True,
@@ -113,14 +77,6 @@ class AllocationItemSchema(Schema):
     holdings_count = fields.Int(
         required=True, validate=NON_NEGATIVE,
         metadata={"description": "この区分に含まれる保有銘柄数", "example": 12},
-    )
-    target_weight = fields.Float(
-        allow_none=True, validate=WEIGHT,
-        metadata={"description": "目標構成比（0〜1）", "example": 0.40},
-    )
-    deviation = fields.Float(
-        allow_none=True,
-        metadata={"description": "目標との差（weight − target_weight）", "example": 0.05},
     )
 
 

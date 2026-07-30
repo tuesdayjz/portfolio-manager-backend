@@ -130,8 +130,7 @@ Response:
 
 `GET /portfolios/{portfolio_id}/summary`
 
-Returns purchase value, market value, total asset value, and unrealized
-gain/loss for one portfolio.
+Returns cash balance, market value, and total return rate for one portfolio.
 
 Request:
 
@@ -148,8 +147,9 @@ Notes:
 
 `GET /portfolios/{portfolio_id}/holdings`
 
-Returns current holdings for one portfolio. The response is an array because one
-portfolio can contain multiple assets.
+Returns current holdings for one portfolio as `items`, plus a `totals` row
+aggregated over every holding that matches the filters and a `pagination` block.
+`totals` reports today's change only, not all-time return.
 
 Request:
 
@@ -174,8 +174,6 @@ Returns allocation for one grouping. `group_by` is required and takes one of
 a screen that shows more than one grouping calls this endpoint once per
 grouping.
 
-`target_weight` and `deviation` are only filled in for `group_by=asset_type`;
-they are null for the other groupings and for asset types with no target set.
 `group_by=sector` covers equities only, so its `total_value` is smaller than the
 portfolio total whenever non-equity assets are held.
 
@@ -198,9 +196,7 @@ Response:
       "name": "stock",
       "value": 4220000,
       "weight": 0.72,
-      "holdings_count": 12,
-      "target_weight": 0.7,
-      "deviation": 0.02
+      "holdings_count": 12
     }
   ],
   "as_of": "2026-07-30T14:25:00"
