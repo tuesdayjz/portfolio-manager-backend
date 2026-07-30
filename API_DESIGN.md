@@ -34,10 +34,10 @@ record portfolio transactions and update current holdings.
 - Clients send no owner identifier at all for private portfolio data: neither
   `portfolio_id` nor `user_id` appears in any path, query string, or request
   body.
-- The backend resolves both the user and the target portfolio from login/auth,
-  so every private endpoint acts on the caller's own portfolio. Since a client
-  cannot name someone else's portfolio, the API cannot leak which portfolio ids
-  exist.
+- The backend resolves both the user and the target portfolio from server-side
+  caller context, so every private endpoint acts on the caller's own portfolio.
+  Since a client cannot name someone else's portfolio, the API cannot leak which
+  portfolio ids exist.
 - User-owned portfolio data is still filtered by `user_id` internally; that is a
   server-side concern backed by the `portfolio.user_id` column.
 - Responses still report `portfolio_id` so a client knows which portfolio the
@@ -48,7 +48,6 @@ record portfolio transactions and update current holdings.
 
 | Tag | Japanese label | Purpose |
 | --- | --- | --- |
-| `auth` | 認証関連 | Signup, login, and logout |
 | `portfolio` | ポートフォリオ関連 | Portfolio creation, summary, holdings, allocation, and performance |
 | `assets` | 資産関連 | Asset master data and Yahoo Finance market prices |
 | `transactions` | 取引履歴関連 | Buy/sell transaction history |
@@ -59,57 +58,12 @@ Paths below are shown without a prefix. The Flask app serves them under
 `/api/v1`, so `GET /portfolios/summary` is
 `GET /api/v1/portfolios/summary`.
 
-### Auth
-
-`POST /auth/signup`
-
-Registers a user and creates one default portfolio. Future production behavior
-uses Supabase Auth for the password and token.
-
-Request:
-
-```json
-{
-  "email": "user@example.com",
-  "password": "password123",
-  "portfolio_name": "Main Portfolio",
-  "base_currency": "JPY"
-}
-```
-
-Response:
-
-```json
-{
-  "access_token": "mock-access-token-101",
-  "token_type": "bearer",
-  "user": {
-    "user_id": 101,
-    "email": "user@example.com"
-  },
-  "portfolio": {
-    "portfolio_id": 1,
-    "name": "Main Portfolio",
-    "base_currency": "JPY"
-  }
-}
-```
-
-`POST /auth/login`
-
-Logs in with email/password and returns a bearer token plus the user's default
-portfolio.
-
-`POST /auth/logout`
-
-Logs out the current session. Future production behavior should clear the
-Supabase session/token on the client side.
-
 ### Portfolio
 
 `POST /portfolios/`
 
-Creates a mock portfolio. The owner comes from login/auth, not the body.
+Creates a mock portfolio. The owner comes from server-side caller context, not
+the body.
 
 Request:
 
@@ -339,7 +293,7 @@ Future extensible query options:
 `POST /transactions`
 
 Records one buy or sell transaction and updates the user's holding. The target
-portfolio is resolved from login/auth, not sent by the client.
+portfolio is resolved from server-side caller context, not sent by the client.
 
 Request:
 
@@ -374,7 +328,7 @@ Response:
 
 Behavior:
 
-- Resolves the target portfolio from login/auth.
+- Resolves the target portfolio from server-side caller context.
 - `buy` inserts one transaction and increases the matching holding quantity.
 - `buy` recalculates holding average cost.
 - `sell` inserts one transaction and decreases the matching holding quantity.
@@ -409,7 +363,8 @@ Purpose:
 - Reduces network overhead by sending many transactions in one request.
 - Improves database batch insert/update efficiency.
 - Lets the backend validate the whole batch before updating holdings.
-- Every element applies to the one portfolio resolved from login/auth, so a
+- Every element applies to the one portfolio resolved from server-side caller
+  context, so a
   batch cannot span several portfolios.
 
 ## Supabase Database Design
@@ -565,8 +520,8 @@ Database behavior notes:
 
 ## Future Supabase Behavior
 
-1. For transaction create, use the portfolio resolved from login/auth and body
-   `asset_id` to find or create a matching `holdings` row.
+1. For transaction create, use the portfolio resolved from server-side caller
+   context and body `asset_id` to find or create a matching `holdings` row.
 2. Resolve body `transaction_type` (`buy` / `sell`) to
    `transaction_type.id`.
 3. Insert the transaction row with `holding_id`, `transaction_type_id`,

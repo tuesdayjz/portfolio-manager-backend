@@ -32,7 +32,6 @@ class BaseConfig:
         "info": {
             "description": (
                 "個人向けポートフォリオ管理 API。\n\n"
-                "- `auth` … ユーザー登録、ログイン、ログアウト\n"
                 "- `portfolio` … ポートフォリオの作成、サマリー、保有残高、資産配分、推移\n"
                 "- `assets` … 資産マスタと Yahoo Finance の市場価格\n"
                 "- `transactions` … 売買の取引履歴\n\n"
