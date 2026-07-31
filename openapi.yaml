@@ -290,19 +290,33 @@ components:
           example: 1y
           nullable: true
         return_1d:
-          $ref: '#/components/schemas/PerformanceChange'
+          allOf:
+          - $ref: '#/components/schemas/PerformanceChange'
+          description: 今日の close price と前日の close price の差分
         return_1m:
-          $ref: '#/components/schemas/PerformanceChange'
+          allOf:
+          - $ref: '#/components/schemas/PerformanceChange'
+          description: 今日の close price と 1 か月前の close price の差分
         return_1w:
-          $ref: '#/components/schemas/PerformanceChange'
+          allOf:
+          - $ref: '#/components/schemas/PerformanceChange'
+          description: 今日の close price と 1 週間前の close price の差分
         return_1y:
-          $ref: '#/components/schemas/PerformanceChange'
+          allOf:
+          - $ref: '#/components/schemas/PerformanceChange'
+          description: 今日の close price と 1 年前の close price の差分
         return_3m:
-          $ref: '#/components/schemas/PerformanceChange'
+          allOf:
+          - $ref: '#/components/schemas/PerformanceChange'
+          description: 今日の close price と 3 か月前の close price の差分
         return_YTD:
-          $ref: '#/components/schemas/PerformanceChange'
+          allOf:
+          - $ref: '#/components/schemas/PerformanceChange'
+          description: 今日の close price と年初の close price の差分
         return_total:
-          $ref: '#/components/schemas/PerformanceChange'
+          allOf:
+          - $ref: '#/components/schemas/PerformanceChange'
+          description: 今日の close price と運用開始時点の close price の差分
         start_date:
           example: '2026-01-01'
           format: date
@@ -348,11 +362,12 @@ components:
         return:
           allOf:
           - $ref: '#/components/schemas/PerformanceChange'
-          description: '`range`（または start_date / end_date）で指定した対象期間の損益'
+          description: '`range`（または start_date / end_date）で指定した対象期間の損益。今日の close price
+            と対象期間の起点 close price の差分で計算する。'
         today:
           allOf:
           - $ref: '#/components/schemas/PerformanceChange'
-          description: 前日終値からの騰落
+          description: 今日の close price と前日の close price の差分で計算する騰落
         total_return:
           allOf:
           - $ref: '#/components/schemas/PerformanceChange'
@@ -848,7 +863,13 @@ paths:
     get:
       description: '取引履歴から日付ごとの保有残高を復元し、`asset_data_history` または
 
-        Yahoo Finance の価格データで評価額と含み損益を計算する想定。'
+        Yahoo Finance の価格データで評価額と含み損益を計算する想定。
+
+        `today` は今日の close price と前日の close price の差分で計算する。
+
+        各期間の return は、今日の close price と対象期間の起点 close price
+
+        （例: `1w` なら 1 週間前）との差分で計算する。'
       parameters:
       - in: query
         name: start_date
@@ -1020,6 +1041,10 @@ paths:
   /api/v1/transactions:
     post:
       description: 'リクエストでは `asset_id` ではなく `ticker` と `name` で asset を特定する。
+
+        新しい asset を追加する場合は、Yahoo Finance API から取得した情報を
+
+        `asset_master` に登録してから取引を作成する。
 
         作成した取引の成功確認として、約定日時・銘柄・最終約定金額を返す。'
       requestBody:

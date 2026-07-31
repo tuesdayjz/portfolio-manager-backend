@@ -54,6 +54,8 @@ class TransactionCollection(MethodView):
         """取引を作成する。
 
         リクエストでは `asset_id` ではなく `ticker` と `name` で asset を特定する。
+        新しい asset を追加する場合は、Yahoo Finance API から取得した情報を
+        `asset_master` に登録してから取引を作成する。
         作成した取引の成功確認として、約定日時・銘柄・最終約定金額を返す。
         """
         abort(501, message=NOT_IMPLEMENTED)

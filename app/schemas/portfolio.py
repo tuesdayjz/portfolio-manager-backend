@@ -185,7 +185,9 @@ class PerformanceMetricsSchema(Schema):
     today = fields.Nested(
         PerformanceChangeSchema,
         required=True,
-        metadata={"description": "前日終値からの騰落"},
+        metadata={
+            "description": "今日の close price と前日の close price の差分で計算する騰落"
+        },
     )
     period_return = fields.Nested(
         PerformanceChangeSchema,
@@ -193,7 +195,8 @@ class PerformanceMetricsSchema(Schema):
         data_key="return",
         metadata={
             "description": "`range`（または start_date / end_date）で指定した"
-            "対象期間の損益"
+            "対象期間の損益。今日の close price と対象期間の起点 close price の"
+            "差分で計算する。"
         },
     )
     total_return = fields.Nested(
@@ -221,14 +224,42 @@ class PerformanceGraphSchema(Schema):
     start_date = fields.Date(required=True, metadata={"example": "2026-01-01"})
     end_date = fields.Date(required=True, metadata={"example": "2026-07-28"})
     metrics = fields.Nested(PerformanceMetricsSchema, required=True)
-    # Precomputed returns let the frontend switch cached chart ranges directly.
-    return_1d = fields.Nested(PerformanceChangeSchema, required=True)
-    return_1w = fields.Nested(PerformanceChangeSchema, required=True)
-    return_1m = fields.Nested(PerformanceChangeSchema, required=True)
-    return_3m = fields.Nested(PerformanceChangeSchema, required=True)
-    return_YTD = fields.Nested(PerformanceChangeSchema, required=True)
-    return_1y = fields.Nested(PerformanceChangeSchema, required=True)
-    return_total = fields.Nested(PerformanceChangeSchema, required=True)
+    # These returns compare today's close price with each range's start close price.
+    return_1d = fields.Nested(
+        PerformanceChangeSchema,
+        required=True,
+        metadata={"description": "今日の close price と前日の close price の差分"},
+    )
+    return_1w = fields.Nested(
+        PerformanceChangeSchema,
+        required=True,
+        metadata={"description": "今日の close price と 1 週間前の close price の差分"},
+    )
+    return_1m = fields.Nested(
+        PerformanceChangeSchema,
+        required=True,
+        metadata={"description": "今日の close price と 1 か月前の close price の差分"},
+    )
+    return_3m = fields.Nested(
+        PerformanceChangeSchema,
+        required=True,
+        metadata={"description": "今日の close price と 3 か月前の close price の差分"},
+    )
+    return_YTD = fields.Nested(
+        PerformanceChangeSchema,
+        required=True,
+        metadata={"description": "今日の close price と年初の close price の差分"},
+    )
+    return_1y = fields.Nested(
+        PerformanceChangeSchema,
+        required=True,
+        metadata={"description": "今日の close price と 1 年前の close price の差分"},
+    )
+    return_total = fields.Nested(
+        PerformanceChangeSchema,
+        required=True,
+        metadata={"description": "今日の close price と運用開始時点の close price の差分"},
+    )
     points = fields.List(fields.Nested(PerformanceGraphPointSchema), required=True)
 
 

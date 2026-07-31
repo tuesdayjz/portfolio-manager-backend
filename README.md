@@ -75,14 +75,17 @@ Swagger UI の Try it out で入力仕様の検証はできる（通れば 501�
 `range` は `1d` / `1w` / `1m` / `3m` / `YTD` / `1y` / `all`、
 `interval` の既定値は `1d`。レスポンスは `return_1d`, `return_1w`,
 `return_1m`, `return_3m`, `return_YTD`, `return_1y`, `return_total` を
-それぞれ `{ amount, percent }` で返す。
+それぞれ `{ amount, percent }` で返す。`today` は今日の close price と
+前日の close price の差分で計算し、各期間の return は今日の close price と
+対象期間の起点 close price（例: `1w` なら 1 週間前）の差分で計算する。
 
 `/transactions` の絞り込みは `transaction_type`, `asset_type`（既定値
 `all`）, `start_date`, `end_date`。`asset_id` と `search` は受け取らない。
 単件作成と一括作成の各 item は `ticker`, `name`, `position`, `order_type`,
 `transaction_type`, `quantity` を受け取り、成功時は作成された取引の確認として
 `date`, `symbol`, `name`, `executed_price`, `executed_unit_price`,
-`asset_type` の約定サマリーを返す。
+`asset_type` の約定サマリーを返す。新しい asset を追加する場合は、Yahoo
+Finance API から取得した情報を `asset_master` に登録してから取引を作成する。
 
 ### 設計メモ
 

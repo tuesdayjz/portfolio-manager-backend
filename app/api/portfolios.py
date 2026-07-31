@@ -91,5 +91,8 @@ class PortfolioPerformance(MethodView):
 
         取引履歴から日付ごとの保有残高を復元し、`asset_data_history` または
         Yahoo Finance の価格データで評価額と含み損益を計算する想定。
+        `today` は今日の close price と前日の close price の差分で計算する。
+        各期間の return は、今日の close price と対象期間の起点 close price
+        （例: `1w` なら 1 週間前）との差分で計算する。
         """
         abort(501, message=NOT_IMPLEMENTED)
