@@ -6,6 +6,15 @@
 API 設計は Flask + flask-smorest で管理し、OpenAPI 3 仕様は Marshmallow
 スキーマから自動生成される。
 
+### User Story
+
+1. As an investor, I want to register my assets so that I can manage my holdings in one place.
+2. As an investor, I want to view the current value of my portfolio so that I can understand my overall finalcial position.
+3. As an investor, I want to track my profits and losses so that I can make informed investment decisions.
+4. As an investor, I want to record my transaction history so that I can review my investment performance over time.
+5. As an investor, I want to visualize my asset allocation so that I can better control and manage risk.
+6. As an investor, I want to monitor my investment performance over time so that I can track the growth of my portfolio.
+
 ### セットアップ
 
 ```bash
