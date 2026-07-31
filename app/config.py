@@ -2,9 +2,16 @@
 
 OpenAPI (Swagger) 関連の設定もここに集約する。flask-smorest は
 `API_*` / `OPENAPI_*` の設定キーを読んで仕様書と Swagger UI を生成する。
+DB (Supabase) 接続も同様に `SQLALCHEMY_*` の設定キーで渡す。
 """
 
 import os
+
+from dotenv import load_dotenv
+
+# 設定値はクラス属性として import 時に評価されるため、
+# `create_app()` を待たずにここで .env を読み込んでおく。
+load_dotenv()
 
 
 class BaseConfig:
@@ -12,6 +19,16 @@ class BaseConfig:
 
     JSON_SORT_KEYS = False
     PROPAGATE_EXCEPTIONS = True
+
+    # ---- Database (Supabase / PostgreSQL) --------------------------------
+    SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL")
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        # Supabase は待機中のコネクションを黙って切るので、
+        # 使う前に生存確認し、古いコネクションは寝かせずに捨てる。
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+    }
 
     # ---- OpenAPI / Swagger ----------------------------------------------
     API_TITLE = "Portfolio Manager API"
@@ -55,6 +72,9 @@ class DevelopmentConfig(BaseConfig):
 
 class TestingConfig(BaseConfig):
     TESTING = True
+    # 本番の Supabase を汚さないよう、テストは専用の DB に向ける。
+    SQLALCHEMY_DATABASE_URI = os.getenv("TEST_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+    SQLALCHEMY_ENGINE_OPTIONS: dict = {}
 
 
 class ProductionConfig(BaseConfig):

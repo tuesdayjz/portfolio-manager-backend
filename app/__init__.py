@@ -6,7 +6,7 @@ from flask import Flask
 
 from app.api import register_blueprints
 from app.config import get_config
-from app.extensions import api
+from app.extensions import api, db, migrate
 
 load_dotenv()
 
@@ -18,6 +18,12 @@ def create_app(config_name: str | None = None) -> Flask:
     """
     app = Flask(__name__)
     app.config.from_object(get_config(config_name))
+
+    db.init_app(app)
+    # マイグレーションの自動生成が拾えるよう、モデルを db より後に import する。
+    from app import models  # noqa: F401
+
+    migrate.init_app(app, db)
 
     api.init_app(app)
     register_blueprints(api)

@@ -22,6 +22,25 @@ export FLASK_APP=wsgi.py
 > `403 Forbidden`（`Server: AirTunes`）が返る。`.env` に
 > `FLASK_RUN_PORT=5001` を入れておけば `flask run` だけで済む。
 
+### データベース (Supabase)
+
+DB は Supabase の PostgreSQL に Flask-SQLAlchemy で接続する。接続情報は
+`.env` の `DATABASE_URL` だけで、Supabase Dashboard > Project Settings >
+Database の Connection string をそのまま使う（ドライバは psycopg v3、
+`sslmode=require` 必須）。書式は [`.env.example`](.env.example) を参照。
+
+スキーマ変更は Flask-Migrate (Alembic) で管理する:
+
+```bash
+.venv/bin/flask db migrate -m "add holdings table"   # マイグレーション生成
+.venv/bin/flask db upgrade                           # 適用
+.venv/bin/flask db downgrade                         # 巻き戻し
+```
+
+モデルは `app/models/` に置き、**`app/models/__init__.py` で import する**。
+`flask db migrate` は `db.metadata` に登録されたモデルしか見ないため、
+import し忘れると差分が空のマイグレーションが生成される。
+
 ### ドキュメント
 
 | URL | 内容 |
