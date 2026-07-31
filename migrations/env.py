@@ -51,6 +51,22 @@ def get_metadata():
     return target_db.metadata
 
 
+def include_object(object, name, type_, reflected, compare_to):
+    """autogenerate の比較対象から auth スキーマ絡みのものを外す。
+
+    auth.users は Supabase Auth の管理下でアプリのモデルには持たない。そのため
+    public.users.id -> auth.users.id の外部キー (users_id_fkey) が「モデルに無い＝
+    削除された」と判定され、migrate のたびに drop_constraint が生成されてしまう。
+    実 DB には残すべき制約なので、ここで比較対象から除外する。
+    """
+    if type_ == "foreign_key_constraint" and reflected:
+        if any(
+            element.column.table.schema == "auth" for element in object.elements
+        ):
+            return False
+    return True
+
+
 def run_migrations_offline():
     """Run migrations in 'offline' mode.
 
@@ -93,6 +109,8 @@ def run_migrations_online():
     conf_args = current_app.extensions['migrate'].configure_args
     if conf_args.get("process_revision_directives") is None:
         conf_args["process_revision_directives"] = process_revision_directives
+    if conf_args.get("include_object") is None:
+        conf_args["include_object"] = include_object
 
     connectable = get_engine()
 

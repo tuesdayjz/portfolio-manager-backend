@@ -115,7 +115,12 @@ class AssetDataHistory(db.Model):
         UniqueConstraint(
             "asset_id", "price_date", name="asset_data_history_asset_id_price_date_key"
         ),
-        Index("asset_data_history_asset_id_price_date_idx", "asset_id", "price_date"),
+        # 実 DB は price_date が降順。sqlacodegen が DESC を落とすので手で足している。
+        Index(
+            "asset_data_history_asset_id_price_date_idx",
+            "asset_id",
+            text("price_date DESC"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
