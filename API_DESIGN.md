@@ -1,281 +1,99 @@
 # Portfolio Manager API Design
 
-## Purpose
+## 目的
 
-This backend is currently a Swagger/mock API design for a portfolio management
-application. It lets users create portfolios, view holdings, record buy/sell
-transactions, inspect market prices, and review portfolio valuation.
+Portfolio Manager backend は、個人向けポートフォリオ管理 API の Flask
+アプリケーションである。現時点では OpenAPI / Swagger UI と
+Marshmallow schema による request / response validation を中心に実装している。
 
-This draft does not place real brokerage orders. Buy and sell actions only
-record portfolio transactions and update current holdings.
+portfolio / assets / transactions の業務処理はまだ未実装で、該当 API は
+`501 Not Implemented` を返す。Supabase 接続設定、Supabase client helper、
+database connection tests、RLS tests は実装済み。
 
-## Data Source Plan
+この API は実際の証券発注を行わない。buy / sell は将来的に取引履歴の記録と
+holdings の更新だけを行う。
 
-- Supabase stores private portfolio data:
-  - `users`
-  - `portfolio`
-  - `asset_master`
-  - `asset_data_history`
-  - `holdings`
-  - `transactions`
-  - `currency`
-  - `asset_type`
-  - `transaction_type`
-- Yahoo Finance provides market data by `asset_master.ticker`.
-- `asset_data_history.close_price` can store historical market close prices.
-- A background job can periodically refresh many tickers:
-  - read active `asset_master.ticker` values from Supabase
-  - fetch prices from Yahoo Finance
-  - write refreshed prices to `asset_data_history` or a future market snapshot area
-  - do not write current market prices into `holdings`
+## 現在の方針
 
-## Data Access Rules
+### Frontend / Backend / Supabase
 
-- Clients send no owner identifier at all for private portfolio data: neither
-  `portfolio_id` nor `user_id` appears in any path, query string, or request
-  body.
-- The backend resolves both the user and the target portfolio from server-side
-  caller context, so every private endpoint acts on the caller's own portfolio.
-  Since a client cannot name someone else's portfolio, the API cannot leak which
-  portfolio ids exist.
-- User-owned portfolio data is still filtered by `user_id` internally; that is a
-  server-side concern backed by the `portfolio.user_id` column.
-- Responses still report `portfolio_id` so a client knows which portfolio the
-  data came from.
-- Public asset/market data is not scoped to a portfolio at all.
+- React は Supabase Auth を直接使って signup / login する。
+- React は Supabase access token を使って private table を直接 read できる。
+- private table の read 制御は Supabase RLS で行う。
+- holdings / transactions など重要な write は Flask backend 経由にする。
+- Flask backend は `SUPABASE_SERVICE_ROLE_KEY` を使って write する。
+- `SUPABASE_SERVICE_ROLE_KEY` は frontend や GitHub に出さない。
+
+### Private Data Access
+
+private portfolio data では client から owner identifier を受け取らない。
+
+- `user_id` は path / query / request body に出さない。
+- `portfolio_id` も private endpoint の path / query / request body に出さない。
+- backend はログイン済み user context から対象 user / portfolio を解決する。
+- response には必要に応じて `portfolio_id` を返してよい。
+- public asset / market data は portfolio scope を持たない。
+
+この設計により、client が他人の `portfolio_id` を指定して存在確認する経路を
+作らない。
 
 ## Swagger Sections
 
-| Tag | Japanese label | Purpose |
+| Tag | Japanese label | 内容 |
 | --- | --- | --- |
-| `portfolio` | ポートフォリオ関連 | Portfolio creation, summary, holdings, allocation, and performance |
-| `assets` | 資産関連 | Asset master data and Yahoo Finance market prices |
-| `transactions` | 取引履歴関連 | Buy/sell transaction history |
+| `portfolio` | ポートフォリオ関連 | portfolio 作成、summary、holdings、allocation、performance |
+| `assets` | 資産関連 | asset master と Yahoo Finance / market price |
+| `transactions` | 取引履歴関連 | buy / sell transaction history |
 
-## Current Mock Endpoints
+すべての API path は `/api/v1` 配下。
 
-Paths below are shown without a prefix. The Flask app serves them under
-`/api/v1`, so `GET /portfolios/summary` is
-`GET /api/v1/portfolios/summary`.
+## Current Endpoints
 
 ### Portfolio
 
-`POST /portfolios/`
+| Method | Path | 状態 | 内容 |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/portfolios/` | 501 | portfolio を作成する |
+| `GET` | `/api/v1/portfolios/summary` | 501 | cash balance、market value、return rate を返す |
+| `GET` | `/api/v1/portfolios/holdings` | 501 | holdings list、totals、pagination を返す |
+| `GET` | `/api/v1/portfolios/allocation` | 501 | `asset_type` / `currency` / `asset` / `sector` で配分を返す |
+| `GET` | `/api/v1/portfolios/performance` | 501 | graph-ready performance points を返す |
 
-Creates a mock portfolio. The owner comes from server-side caller context, not
-the body.
-
-Request:
-
-```json
-{
-  "name": "Main Portfolio",
-  "currency": "JPY",
-  "cash_balance": 500000
-}
-```
-
-Response:
-
-```json
-{
-  "name": "Main Portfolio",
-  "currency": "JPY",
-  "cash_balance": 500000,
-  "portfolio_id": 2
-}
-```
-
-`GET /portfolios/summary`
-
-Returns cash balance, market value, and total return rate for one portfolio.
-
-Request:
-
-```text
-GET /portfolios/summary
-```
-
-Notes:
-
-- Market value uses Yahoo Finance or `asset_data_history` prices, not
-  `holdings`.
-- `cash_balance` is mock-only because the current Supabase schema has no cash
-  balance column/table.
-
-`GET /portfolios/holdings`
-
-Returns current holdings for one portfolio as `items`, plus a `totals` row
-aggregated over every holding that matches the filters and a `pagination` block.
-`totals` reports today's change only, not all-time return.
-
-Request:
-
-```text
-GET /portfolios/holdings
-```
-
-Supports filters:
+`GET /portfolios/holdings` の filter:
 
 - `asset_id`
+- `page`
+- `per_page`
 
-Important data boundary:
+`GET /portfolios/allocation` の filter:
 
-- Supabase `holdings` stores quantity and average cost.
-- `current_price` is market data from Yahoo Finance or `asset_data_history`.
-- Do not store `current_price` in `holdings`.
+- `group_by`: `asset_type`, `currency`, `asset`, `sector`
 
-`GET /portfolios/allocation`
+`GET /portfolios/performance` の filter:
 
-Returns allocation for one grouping. `group_by` is required and takes one of
-`asset_type`, `currency`, `asset`, or `sector`. There is no combined response;
-a screen that shows more than one grouping calls this endpoint once per
-grouping.
-
-`group_by=sector` covers equities only, so its `total_value` is smaller than the
-portfolio total whenever non-equity assets are held.
-
-Request:
-
-```text
-GET /portfolios/allocation?group_by=asset_type
-```
-
-Response:
-
-```json
-{
-  "portfolio_id": 1,
-  "group_by": "asset_type",
-  "currency": "JPY",
-  "total_value": 5860000,
-  "items": [
-    {
-      "name": "stock",
-      "value": 4220000,
-      "weight": 0.72,
-      "holdings_count": 12
-    }
-  ],
-  "as_of": "2026-07-30T14:25:00"
-}
-```
-
-`GET /portfolios/performance`
-
-Returns graph-ready portfolio performance points.
-
-Request:
-
-```text
-GET /portfolios/performance?start_date=2026-07-26&end_date=2026-07-28&interval=1d
-```
-
-Response:
-
-```json
-{
-  "portfolio_id": 1,
-  "currency": "JPY",
-  "interval": "1d",
-  "points": [
-    {
-      "date": "2026-07-26",
-      "total_purchase_value": 94814.3,
-      "total_market_value": 124434.53,
-      "unrealized_gain_loss": 29620.23
-    }
-  ]
-}
-```
-
-Behavior:
-
-- Reconstructs historical holding quantity from `transactions`.
-- Uses `asset_data_history.close_price` by date for market value.
-- Uses `asset_master.ticker` as the Yahoo Finance ticker.
-- Does not require any Supabase schema change.
+- `start_date`
+- `end_date`
+- `interval`: `1d`, `1wk`, `1mo`
 
 ### Assets
 
-`GET /assets/{asset_id}/`
+| Method | Path | 状態 | 内容 |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/assets/{asset_id}/` | 501 | asset master record を返す |
+| `GET` | `/api/v1/assets/{asset_id}/price-history` | 501 | historical OHLCV / close price data を返す |
 
-Returns one asset master record. The response includes `ticker`, which connects
-the asset to Yahoo Finance market data.
-
-This endpoint does not return private user-owned values like quantity or
-average cost. Those values belong to `GET /portfolios/holdings`.
-
-`GET /assets/{asset_id}/price-history`
-
-Returns mock historical OHLCV price data. Future behavior uses the asset
-`ticker` to fetch Yahoo Finance history or reads cached close prices from
-`asset_data_history`.
+assets endpoint は public data を扱うため、`user_id` は不要。
+保有数量や平均取得単価は holdings 側の private data として扱う。
 
 ### Transactions
 
-`GET /portfolios/transactions`
+| Method | Path | 状態 | 内容 |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/portfolios/transactions` | 501 | transaction history、realized P/L、pagination を返す |
+| `POST` | `/api/v1/transactions` | 501 | 1 件の buy / sell を登録し holdings を更新する |
+| `POST` | `/api/v1/transactions/batch` | 501 | 複数 transaction をまとめて登録する |
 
-Returns one user's transaction history for one portfolio, with realized profit
-and loss per transaction and for the filtered set as a whole.
-
-Request:
-
-```text
-GET /portfolios/transactions?page=1&per_page=20
-```
-
-Response:
-
-```json
-{
-  "items": [
-    {
-      "transaction_id": 12,
-      "portfolio_id": 1,
-      "asset_id": 2,
-      "transaction_type": "sell",
-      "quantity": 20,
-      "price": 178.5,
-      "date": "2026-06-11T18:00:00",
-      "total_amount": 3570.0,
-      "symbol": "TSLA",
-      "name": "Tesla Inc.",
-      "asset_type": "stock",
-      "cost_basis": 3710.0,
-      "realized_pl": -140.0,
-      "realized_pl_percent": -3.77,
-      "currency": "JPY"
-    }
-  ],
-  "totals": {
-    "cost_basis": 3710.0,
-    "realized_pl": -140.0,
-    "realized_pl_percent": -3.77,
-    "sell_count": 1,
-    "currency": "JPY"
-  },
-  "pagination": {
-    "page": 1,
-    "per_page": 20,
-    "total_items": 1,
-    "total_pages": 1
-  }
-}
-```
-
-Profit and loss rules:
-
-- `realized_pl` is `total_amount - cost_basis`, where `cost_basis` is the
-  average cost at the moment of the sale times the sold quantity.
-- A `buy` does not settle profit or loss, so `cost_basis`, `realized_pl` and
-  `realized_pl_percent` are all null on buy rows.
-- `totals` covers every row matching the filters, not just the current page, and
-  counts `sell` rows only. `sell_count` says how many rows fed the total.
-- Unrealized gain on positions still held is not part of this endpoint; it lives
-  on holdings and the portfolio summary.
-
-Supports filters:
+`GET /portfolios/transactions` の filter:
 
 - `asset_id`
 - `search`
@@ -283,266 +101,243 @@ Supports filters:
 - `asset_type`
 - `start_date`
 - `end_date`
-- `page` and `per_page`
+- `page`
+- `per_page`
 
-Future extensible query options:
+transaction write の将来挙動:
 
-- `ticker`: filter transactions after joining `asset_master`
-- `sort_by` and `sort_order`: support sorting by date, quantity, or price
-
-`POST /transactions`
-
-Records one buy or sell transaction and updates the user's holding. The target
-portfolio is resolved from server-side caller context, not sent by the client.
-
-Request:
-
-```json
-{
-  "asset_id": 1,
-  "transaction_type": "buy",
-  "quantity": 2
-}
-```
-
-Response:
-
-```json
-{
-  "transaction_id": 12,
-  "portfolio_id": 1,
-  "asset_id": 1,
-  "transaction_type": "buy",
-  "quantity": 2,
-  "price": 2980.5,
-  "date": "2026-07-28T18:00:00",
-  "total_amount": 5961.0,
-  "symbol": "7203.T",
-  "name": "Toyota Motor Corp.",
-  "asset_type": "stock",
-  "currency": "JPY"
-}
-```
-
-`price` and `date` are settled server-side, so they are response-only.
-
-Behavior:
-
-- Resolves the target portfolio from server-side caller context.
-- `buy` inserts one transaction and increases the matching holding quantity.
-- `buy` recalculates holding average cost.
-- `sell` inserts one transaction and decreases the matching holding quantity.
-- Selling more than the current holding returns `400`.
-
-`POST /transactions/batch`
-
-Records multiple buy/sell transactions in one request and updates holdings for
-each transaction.
-
-Request:
-
-```json
-{
-  "transactions": [
-    {
-      "asset_id": 1,
-      "transaction_type": "buy",
-      "quantity": 2
-    },
-    {
-      "asset_id": 2,
-      "transaction_type": "sell",
-      "quantity": 1
-    }
-  ]
-}
-```
-
-Purpose:
-
-- Reduces network overhead by sending many transactions in one request.
-- Improves database batch insert/update efficiency.
-- Lets the backend validate the whole batch before updating holdings.
-- Every element applies to the one portfolio resolved from server-side caller
-  context, so a
-  batch cannot span several portfolios.
+- body の `asset_id` とログイン user の portfolio から holding を探す。
+- `buy` は transaction を追加し、holding quantity を増やし、average cost を再計算する。
+- `sell` は transaction を追加し、holding quantity を減らす。
+- holding quantity を超える `sell` は `400`。
+- batch は全件 validation 後にまとめて更新する。1 件でも不正なら何も更新しない。
 
 ## Supabase Database Design
 
-This section reflects the current Supabase `public` schema checked on
-2026-07-29. The API can still use readable request/response fields, but the
-database now normalizes currency, asset type, and transaction type through
-lookup tables.
+現在の設計では、private data と shared data を分けて扱う。
 
-### `users`
+### Private Tables
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | uuid | Primary key |
-| `email` | text | Required user email |
-| `created_at` | timestamp with time zone | Required; default `now()` |
-| `updated_at` | timestamp with time zone | Required; default `now()` |
-| `name` | character varying | Optional display name |
-| `password` | text | Optional current schema column; future production should use Supabase Auth instead |
+| Table | 主な owner relation |
+| --- | --- |
+| `users` | `users.id` が Supabase Auth user id と一致する |
+| `portfolio` | `portfolio.user_id -> users.id` |
+| `holdings` | `holdings.portfolio_id -> portfolio.id` |
+| `transactions` | `transactions.holding_id -> holdings.id -> portfolio.id` |
 
-### `portfolio`
+private table の RLS:
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | uuid | Primary key; default `gen_random_uuid()`; API name is `portfolio_id` |
-| `user_id` | uuid | Required owner; references `users.id` |
-| `name` | text | Required portfolio name; default `Default Portfolio` |
-| `created_at` | timestamp with time zone | Required; default `now()` |
-| `updated_at` | timestamp with time zone | Required; default `now()` |
+| Table | RLS read rule |
+| --- | --- |
+| `users` | `users.id = auth.uid()` |
+| `portfolio` | `portfolio.user_id = auth.uid()` |
+| `holdings` | `holdings -> portfolio.user_id = auth.uid()` |
+| `transactions` | `transactions -> holdings -> portfolio.user_id = auth.uid()` |
 
-### `asset_master`
+React user には通常の `INSERT` / `UPDATE` / `DELETE` policy を追加しない。
+重要な write は Flask backend の service role client から行う。
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | uuid | Primary key; default `gen_random_uuid()`; API name is `asset_id` |
-| `ticker` | text | Required Yahoo Finance ticker, such as `AAPL` or `7203.T` |
-| `name` | text | Optional asset name |
-| `asset_type` | text | Optional legacy readable asset type |
-| `asset_type_id` | uuid | Optional; references `asset_type.id` |
-| `currency_id` | uuid | Optional; references `currency.id` |
+### Shared Tables
 
-### `currency`
+| Table | 内容 |
+| --- | --- |
+| `currency` | 通貨 code / symbol |
+| `asset_type` | stock, bond, etf などの asset type |
+| `transaction_type` | buy / sell |
+| `asset_master` | ticker, name, asset type, currency |
+| `asset_data_history` | historical close price |
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | uuid | Primary key; default `gen_random_uuid()` |
-| `currency` | text | Required currency code, such as `JPY` or `USD` |
-| `symbol` | text | Optional currency symbol |
+logged-in user は shared tables を read できる。write は backend / service role に寄せる。
 
-Current allowed rows:
+### Table Notes
 
-- `AUD`
-- `CAD`
-- `CHF`
-- `CNY`
-- `EUR`
-- `GBP`
-- `HKD`
-- `JPY`
-- `KRW`
-- `SGD`
-- `USD`
-
-### `asset_type`
+#### `users`
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `id` | uuid | Primary key; default `gen_random_uuid()` |
-| `asset_type` | text | Required asset type |
+| `id` | uuid | Supabase Auth user id と一致させる |
+| `email` | text | user email |
+| `name` | varchar | optional display name |
+| `created_at` | timestamptz | default `now()` |
+| `updated_at` | timestamptz | default `now()` |
 
-Current allowed rows:
+production では password を application table に保存しない。password は Supabase
+Auth 側で管理する。
 
-- `bond`
-- `cash`
-- `crypto`
-- `etf`
-- `fund`
-- `reit`
-- `stock`
-
-### `transaction_type`
+#### `portfolio`
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `id` | uuid | Primary key; default `gen_random_uuid()` |
-| `transaction_type` | character varying | Required transaction type |
+| `id` | uuid | API response では `portfolio_id` として返す |
+| `user_id` | uuid | owner; `users.id` を参照 |
+| `name` | text | default portfolio name |
+| `created_at` | timestamptz | default `now()` |
+| `updated_at` | timestamptz | default `now()` |
 
-Current allowed rows:
-
-- `buy`
-- `sell`
-
-### `asset_data_history`
+#### `asset_master`
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `id` | uuid | Primary key; default `gen_random_uuid()` |
-| `asset_id` | uuid | Required; references `asset_master.id` |
-| `price_date` | date | Required market price date |
-| `close_price` | numeric | Required historical close price |
+| `id` | uuid | API response では `asset_id` として返す |
+| `ticker` | text | Yahoo Finance ticker |
+| `name` | text | asset name |
+| `asset_type_id` | uuid | `asset_type.id` を参照 |
+| `currency_id` | uuid | `currency.id` を参照 |
 
-### `holdings`
-
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | uuid | Primary key; default `gen_random_uuid()` |
-| `portfolio_id` | uuid | Required; references `portfolio.id` |
-| `asset_id` | uuid | Required; references `asset_master.id` |
-| `quantity` | numeric | Required current holding quantity; default `0` |
-| `average_cost` | numeric | Optional average purchase cost |
-| `updated_at` | timestamp with time zone | Required; default `now()` |
-
-### `transactions`
+#### `holdings`
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `id` | uuid | Primary key; default `gen_random_uuid()` |
-| `holding_id` | uuid | Required; references `holdings.id` |
-| `transaction_type_id` | uuid | Required; references `transaction_type.id` |
-| `trade_date` | date | Required trade date |
-| `quantity` | numeric | Required transaction quantity |
-| `price` | numeric | Required transaction price |
-| `fees` | numeric | Required transaction fees; default `0` |
-| `created_at` | timestamp with time zone | Required; default `now()` |
+| `id` | uuid | holding id |
+| `portfolio_id` | uuid | `portfolio.id` を参照 |
+| `asset_id` | uuid | `asset_master.id` を参照 |
+| `quantity` | numeric | 現在の保有数量 |
+| `average_cost` | numeric | 平均取得単価 |
+| `updated_at` | timestamptz | default `now()` |
 
-Foreign keys:
+金額や数量は float ではなく `numeric` で保存する。`current_price` は holdings
+に保存しない。market price は Yahoo Finance または `asset_data_history` から取る。
 
-- `portfolio.user_id` -> `users.id`
-- `asset_master.asset_type_id` -> `asset_type.id`
-- `asset_master.currency_id` -> `currency.id`
-- `holdings.portfolio_id` -> `portfolio.id`
-- `holdings.asset_id` -> `asset_master.id`
-- `transactions.holding_id` -> `holdings.id`
-- `transactions.transaction_type_id` -> `transaction_type.id`
-- `asset_data_history.asset_id` -> `asset_master.id`
+#### `transactions`
 
-Database behavior notes:
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | uuid | transaction id |
+| `holding_id` | uuid | `holdings.id` を参照 |
+| `transaction_type_id` | uuid | `transaction_type.id` を参照 |
+| `trade_date` | date | trade date |
+| `quantity` | numeric | transaction quantity |
+| `price` | numeric | transaction price |
+| `fees` | numeric | default `0` |
+| `created_at` | timestamptz | default `now()` |
 
-- Do not add `user_id` to `holdings`; get ownership through
-  `holdings -> portfolio -> users`.
-- Do not add `portfolio_id` or `user_id` to `transactions`; get ownership
-  through `transactions -> holdings -> portfolio`.
-- Do not add `asset_id` to `transactions`; get the asset through
-  `transactions -> holdings -> asset_master`.
-- Use `asset_master.ticker` for Yahoo Finance lookup.
-- Use `asset_master.currency_id -> currency.id` for currency validation.
-- Use `asset_master.asset_type_id -> asset_type.id` for asset type validation.
-- Use `transactions.transaction_type_id -> transaction_type.id` for buy/sell
-  validation.
-- Do not store `current_price` in `holdings`.
-- Portfolio summary should not claim `cash_balance` comes from Supabase because
-  the current schema has no cash balance column/table.
+`transactions` に `user_id` / `portfolio_id` / `asset_id` は追加しない。
+ownership は `transactions -> holdings -> portfolio -> users` で解決する。
 
-## Future Supabase Behavior
+#### `asset_data_history`
 
-1. For transaction create, use the portfolio resolved from server-side caller
-   context and body `asset_id` to find or create a matching `holdings` row.
-2. Resolve body `transaction_type` (`buy` / `sell`) to
-   `transaction_type.id`.
-3. Insert the transaction row with `holding_id`, `transaction_type_id`,
-   `trade_date`, `quantity`, `price`, and `fees`.
-4. For `buy`, increase `holdings.quantity` and update `holdings.average_cost`.
-5. For `sell`, decrease `holdings.quantity`.
-6. Reject a sell request if the requested quantity is larger than the current
-   holding.
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | uuid | history row id |
+| `asset_id` | uuid | `asset_master.id` を参照 |
+| `price_date` | date | market price date |
+| `close_price` | numeric | historical close price |
+
+## Supabase Client / Config
+
+Flask app では Supabase 設定を直接 `os.getenv` で読まない。`app.config` を経由し、
+`app.services.supabase` で client を作成する。
+
+```python
+from app.services.supabase import get_supabase_service_client
+
+client = get_supabase_service_client()
+```
+
+主な helper:
+
+| Function | 用途 |
+| --- | --- |
+| `get_supabase_anon_client()` | Flask app に cached anon client を返す |
+| `get_supabase_service_client()` | Flask app に cached service role client を返す |
+| `create_supabase_anon_client()` | session を分けたい test 用の non-cached anon client |
+| `create_supabase_service_client()` | non-cached service role client |
+| `close_supabase_client(client)` | HTTP resources を解放する |
+| `close_supabase_clients(app=None)` | Flask app に cached された clients を解放する |
+
+## Test Design
+
+### Unit Tests
+
+```bash
+.venv/bin/python -m unittest tests.test_config
+```
+
+`tests.test_config` は以下を確認する。
+
+- `app/config.py` が Supabase env を `TestingConfig` に反映する。
+- secrets 未設定時は safe local defaults になる。
+- Supabase client helper が Flask `app.config` を使う。
+- 必要な config key がない場合は明確に失敗する。
+
+### Database Connection Tests
+
+```bash
+.venv/bin/python -W ignore::DeprecationWarning -m unittest tests.database_connection.test_supabase_connection
+```
+
+有効化:
+
+```text
+RUN_SUPABASE_CONNECTION_TESTS=true
+```
+
+確認内容:
+
+- Connection Setup: 正しい URL / key で client を作成できる。
+- Basic Operations: reference table に軽量 read を実行できる。
+- Exception: 不正 key では例外を捕捉できる。
+- Teardown: client resource を close / release できる。
+
+### RLS Tests
+
+```bash
+.venv/bin/python -W ignore::DeprecationWarning -m unittest tests.database_connection.test_supabase_user_rls
+```
+
+`RUN_SUPABASE_REAL_USER` で mock user / real user を切り替える。
+
+```text
+RUN_SUPABASE_REAL_USER=false
+```
+
+mock user mode:
+
+- temporary Auth users を作成する。
+- users / portfolio / holdings / transactions が自分の rows だけ見えることを確認する。
+- shared tables を read できることを確認する。
+- shared/private table への direct write が拒否されることを確認する。
+- 作成した test data は teardown で削除する。
+
+```text
+RUN_SUPABASE_REAL_USER=true
+SUPABASE_TEST_USER_EMAIL=
+SUPABASE_TEST_USER_PASSWORD=
+SUPABASE_SECOND_TEST_USER_EMAIL=
+SUPABASE_SECOND_TEST_USER_PASSWORD=
+```
+
+real user mode:
+
+- 実在 user で login する。
+- user A / user B の holdings が互いに見えないことを確認する。
+- direct insert が拒否されることを確認する。
+- `RUN_SUPABASE_REAL_USER_BOOTSTRAP_DATA=true` の場合、holding がない user に
+  temporary mock holding を作成し、test 後に削除する。
 
 ## Run Locally
-
-The API is implemented as a Flask + flask-smorest design under `app/`. See the
-[README](README.md) for setup.
 
 ```bash
 export FLASK_APP=wsgi.py
 .venv/bin/flask run --port=5001
 ```
 
+5001 が使えない場合:
+
+```bash
+.venv/bin/flask run --port=5003
+```
+
 Swagger UI:
 
 ```text
 http://localhost:5001/docs
+http://localhost:5003/docs
+```
+
+OpenAPI export:
+
+```bash
+.venv/bin/flask export-openapi
+.venv/bin/flask export-openapi -f json
 ```

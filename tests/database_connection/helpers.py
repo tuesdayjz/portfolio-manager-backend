@@ -20,7 +20,6 @@ class SupabaseLiveTestCase(unittest.TestCase):
         *,
         enabled_var=None,
         enabled_message=None,
-        rls_modes=None,
         rls_user_type=None,
         require_anon=True,
         require_service=True,
@@ -39,20 +38,6 @@ class SupabaseLiveTestCase(unittest.TestCase):
             if not self._rls_user_type_enabled(rls_user_type):
                 user_type = "real user" if rls_user_type == "real" else "mock user"
                 self.skipTest(enabled_message or f"Skip {user_type} RLS tests.")
-        elif rls_modes:
-            mode_enabled = self._rls_mode_enabled(rls_modes)
-            if mode_enabled is False:
-                allowed = ", ".join(rls_modes)
-                self.skipTest(
-                    enabled_message
-                    or f"Set SUPABASE_RLS_TEST_MODE to one of: {allowed}, all."
-                )
-            if mode_enabled is True:
-                self.enabled = True
-            elif enabled_var:
-                self.enabled = os.getenv(enabled_var) == "true"
-                if not self.enabled:
-                    self.skipTest(enabled_message or f"Set {enabled_var}=true.")
         elif enabled_var:
             self.enabled = os.getenv(enabled_var) == "true"
             if not self.enabled:
@@ -70,31 +55,10 @@ class SupabaseLiveTestCase(unittest.TestCase):
 
     def _rls_user_type_enabled(self, user_type):
         value = os.getenv("RUN_SUPABASE_REAL_USER")
-        if value is not None:
-            use_real_user = value.strip().lower() == "true"
-            return use_real_user if user_type == "real" else not use_real_user
-
-        mode = os.getenv("SUPABASE_RLS_TEST_MODE", "").strip().lower()
-        if mode:
-            if mode in {"off", "false", "none", "0"}:
-                return False
-            if mode == "all":
-                return True
-            return mode == user_type
-
-        if user_type == "real":
-            return os.getenv("RUN_SUPABASE_REAL_USER_RLS_TESTS") == "true"
-        return os.getenv("RUN_SUPABASE_RLS_TESTS") == "true"
-
-    def _rls_mode_enabled(self, allowed_modes):
-        mode = os.getenv("SUPABASE_RLS_TEST_MODE", "").strip().lower()
-        if not mode:
-            return None
-        if mode in {"off", "false", "none", "0"}:
+        if value is None:
             return False
-        if mode == "all":
-            return True
-        return mode in set(allowed_modes)
+        use_real_user = value.strip().lower() == "true"
+        return use_real_user if user_type == "real" else not use_real_user
 
     def init_supabase_clients(self):
         self.service_client = self.service_client_or_skip()

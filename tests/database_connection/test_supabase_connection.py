@@ -1,4 +1,4 @@
-"""Supabase connection setup, basic query, exception, and teardown tests."""
+"""Supabase connection setup、基本 query、例外、teardown の tests。"""
 
 import warnings
 
@@ -22,11 +22,11 @@ SUPABASE_TABLES = (
 
 
 class SupabaseConnectionTest(SupabaseLiveTestCase):
-    """Verify the Supabase client can connect with local test configuration.
+    """ローカル test configuration で Supabase client が接続できることを確認する。
 
-    These tests do not create/update/delete data. They only verify that the
-    configured clients can connect, run a lightweight read, handle bad config,
-    and release HTTP resources.
+    この tests では data の create/update/delete は行わない。
+    設定済み client が接続できること、軽量 read を実行できること、
+    不正な config を例外として扱えること、HTTP resources を解放できることだけを確認する。
     """
 
     def setUp(self):

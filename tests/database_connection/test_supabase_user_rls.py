@@ -1,7 +1,11 @@
-"""Supabase user RLS and isolation tests.
+"""Supabase user RLS と isolation の tests。
 
-RUN_SUPABASE_REAL_USER=false runs mock-user RLS tests.
-RUN_SUPABASE_REAL_USER=true runs real-user RLS tests.
+RUN_SUPABASE_REAL_USER=false では mock user の RLS tests を実行する。
+RUN_SUPABASE_REAL_USER=true では real user の RLS tests を実行する。
+
+Supabase client はすべて `app.services.supabase` 経由で作成するため、
+アプリ本体と同じ Flask config 経路を検証できる。mock user tests では
+一時的な Auth / database rows を作成し、各 test の終了時に削除する。
 """
 
 import os
@@ -21,11 +25,10 @@ PUBLIC_TABLES = (
 
 
 class SupabaseMockPrivateRlsTest(SupabaseLiveTestCase):
-    """Verify mock users can access only their own private rows."""
+    """mock users が自分の private rows だけを参照できることを確認する。"""
 
     def setUp(self):
         self.load_supabase_settings(
-            enabled_var="RUN_SUPABASE_RLS_TESTS",
             enabled_message=(
                 "Set RUN_SUPABASE_REAL_USER=false to run mock-user private RLS tests."
             ),
@@ -219,11 +222,10 @@ class SupabaseMockPrivateRlsTest(SupabaseLiveTestCase):
 
 
 class SupabaseMockSharedTableRlsTest(SupabaseLiveTestCase):
-    """Verify mock users can read shared tables but cannot write them."""
+    """mock users が shared tables を読めるが、直接書き込めないことを確認する。"""
 
     def setUp(self):
         self.load_supabase_settings(
-            enabled_var="RUN_SUPABASE_RLS_TESTS",
             enabled_message=(
                 "Set RUN_SUPABASE_REAL_USER=false to run mock-user shared RLS tests."
             ),
@@ -273,11 +275,10 @@ class SupabaseMockSharedTableRlsTest(SupabaseLiveTestCase):
 
 
 class SupabaseRealUserRlsTest(SupabaseLiveTestCase):
-    """Verify real users can access only their own private rows."""
+    """real users が自分の private rows だけを参照できることを確認する。"""
 
     def setUp(self):
         self.load_supabase_settings(
-            enabled_var="RUN_SUPABASE_REAL_USER_RLS_TESTS",
             enabled_message=(
                 "Set RUN_SUPABASE_REAL_USER=true to run real-user RLS tests."
             ),
