@@ -15,7 +15,7 @@ class TransactionType(enum.Enum):
 
 
 class Interval(enum.Enum):
-    """推移グラフの粒度。Yahoo Finance の interval 表記に合わせる。"""
+    """推移グラフの粒度。現時点では 1 日粒度を標準として扱う。"""
 
     DAILY = "1d"
     WEEKLY = "1wk"
@@ -23,7 +23,7 @@ class Interval(enum.Enum):
 
 
 class PerformanceRange(enum.Enum):
-    """パフォーマンス画面の期間セレクタ（1D / 1W / 1M / 3M / 6M / 1Y / ALL）。
+    """パフォーマンス画面の期間セレクタ（1D / 1W / 1M / 3M / YTD / 1Y / ALL）。
 
     `Interval` がグラフの「粒度」なのに対し、こちらは「どこまで遡るか」を表す。
     `all` は口座開設日（最初の取引日）からの全期間。
@@ -33,7 +33,7 @@ class PerformanceRange(enum.Enum):
     WEEK = "1w"
     MONTH = "1m"
     THREE_MONTHS = "3m"
-    SIX_MONTHS = "6m"
+    YEAR_TO_DATE = "YTD"
     YEAR = "1y"
     ALL = "all"
 

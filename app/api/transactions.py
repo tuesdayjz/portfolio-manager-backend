@@ -33,7 +33,8 @@ class PortfolioTransactionCollection(MethodView):
     def get(self, args):
         """取引履歴を取得する。
 
-        `asset_id` / `start_date` / `end_date` で絞り込める。
+        `transaction_type` / `asset_type` / `start_date` / `end_date` で
+        絞り込める。検索や銘柄単位の細かい絞り込みはフロントエンド側で行う。
         日付はどちらも指定日を含む（inclusive）。
 
         各取引の実現損益は `realized_pl`、絞り込み後の全件の合計は `totals`
@@ -50,11 +51,10 @@ class TransactionCollection(MethodView):
     @blp.alt_response(400, description="Cannot sell more than current holding")
     @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
     def post(self, payload):
-        """取引を登録し、保有残高（holdings）を更新する。
+        """取引を作成する。
 
-        登録先はログイン情報から解決する。`buy` は保有数量を増やして
-        平均取得単価を再計算し、`sell` は保有数量を減らす。保有数量を超える
-        売却は 400。
+        リクエストでは `asset_id` ではなく `ticker` と `name` で asset を特定する。
+        作成した取引の成功確認として、約定日時・銘柄・最終約定金額を返す。
         """
         abort(501, message=NOT_IMPLEMENTED)
 
@@ -66,10 +66,9 @@ class TransactionBatch(MethodView):
     @blp.alt_response(400, description="One or more transactions are invalid")
     @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
     def post(self, payload):
-        """複数の取引を一括登録し、各取引ごとに保有残高を更新する。
+        """複数の取引を一括作成する。
 
-        ネットワーク通信回数を減らし、データベースの一括登録・一括更新効率を
-        高める。全件を検証してから更新するため、1 件でも不正なら何も更新しない。
-        登録先はログイン情報から解決した 1 つのポートフォリオで、全要素に共通。
+        各 item は単件作成と同じ形で、成功時は各取引に対応する約定サマリーを返す。
+        全件を検証してから作成するため、1 件でも不正なら何も作成しない。
         """
         abort(501, message=NOT_IMPLEMENTED)

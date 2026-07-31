@@ -16,15 +16,15 @@ components:
     AllocationItem:
       additionalProperties: false
       properties:
+        category:
+          description: 集計基準ごとの区分名（資産クラス名・通貨コード・銘柄名・セクター名）
+          example: stock
+          type: string
         holdings_count:
           description: この区分に含まれる保有銘柄数
           example: 12
           minimum: 0
           type: integer
-        name:
-          description: 集計基準ごとの区分名（資産クラス名・通貨コード・銘柄名・セクター名）
-          example: stock
-          type: string
         value:
           example: 4220000
           minimum: 0.0
@@ -35,8 +35,8 @@ components:
           minimum: 0.0
           type: number
       required:
+      - category
       - holdings_count
-      - name
       - value
       - weight
       type: object
@@ -95,7 +95,6 @@ components:
         asset_id:
           description: Asset ID
           example: 1
-          minimum: 1
           type: integer
         asset_type:
           description: 資産クラス。配分の `group_by=asset_type` と同じ区分。
@@ -129,10 +128,6 @@ components:
           description: Asset name
           example: Toyota Motor Corp.
           type: string
-        portfolio_id:
-          example: 1
-          minimum: 1
-          type: integer
         quantity:
           description: Current holding quantity
           example: 8.5
@@ -156,7 +151,6 @@ components:
       - day_change_percent
       - market_value
       - name
-      - portfolio_id
       - quantity
       - symbol
       type: object
@@ -282,10 +276,6 @@ components:
           items:
             $ref: '#/components/schemas/PerformanceGraphPoint'
           type: array
-        portfolio_id:
-          example: 1
-          minimum: 1
-          type: integer
         range:
           description: 期間セレクタで指定された値。start_date / end_date で直接指定された場合は null。
           enum:
@@ -293,12 +283,26 @@ components:
           - 1w
           - 1m
           - 3m
-          - 6m
+          - YTD
           - 1y
           - all
           - null
           example: 1y
           nullable: true
+        return_1d:
+          $ref: '#/components/schemas/PerformanceChange'
+        return_1m:
+          $ref: '#/components/schemas/PerformanceChange'
+        return_1w:
+          $ref: '#/components/schemas/PerformanceChange'
+        return_1y:
+          $ref: '#/components/schemas/PerformanceChange'
+        return_3m:
+          $ref: '#/components/schemas/PerformanceChange'
+        return_YTD:
+          $ref: '#/components/schemas/PerformanceChange'
+        return_total:
+          $ref: '#/components/schemas/PerformanceChange'
         start_date:
           example: '2026-01-01'
           format: date
@@ -309,7 +313,13 @@ components:
       - interval
       - metrics
       - points
-      - portfolio_id
+      - return_1d
+      - return_1m
+      - return_1w
+      - return_1y
+      - return_3m
+      - return_YTD
+      - return_total
       - start_date
       type: object
     PerformanceGraphPoint:
@@ -353,31 +363,6 @@ components:
       - today
       - total_return
       type: object
-    Portfolio:
-      additionalProperties: false
-      properties:
-        cash_balance:
-          default: 0.0
-          description: Mock-only cash value; current Supabase schema has no cash balance
-            column
-          example: 1000000
-          minimum: 0.0
-          type: number
-        currency:
-          example: JPY
-          type: string
-        name:
-          example: Main Portfolio
-          type: string
-        portfolio_id:
-          example: 1
-          minimum: 1
-          type: integer
-      required:
-      - currency
-      - name
-      - portfolio_id
-      type: object
     PortfolioAllocation:
       additionalProperties: false
       properties:
@@ -403,10 +388,6 @@ components:
           items:
             $ref: '#/components/schemas/AllocationItem'
           type: array
-        portfolio_id:
-          example: 1
-          minimum: 1
-          type: integer
         total_value:
           description: '`items` の value 合計。ドーナツ中央の Total Value。`group_by=sector` では株式ぶんだけの合計になる。'
           example: 5860000
@@ -417,7 +398,6 @@ components:
       - currency
       - group_by
       - items
-      - portfolio_id
       - total_value
       type: object
     PortfolioCreate:
@@ -431,14 +411,23 @@ components:
           minimum: 0.0
           type: number
         currency:
-          example: JPY
+          default: USD
+          example: USD
           type: string
         name:
           example: Main Portfolio
           type: string
       required:
-      - currency
       - name
+      type: object
+    PortfolioCreateResult:
+      additionalProperties: false
+      properties:
+        message:
+          example: Portfolio created
+          type: string
+      required:
+      - message
       type: object
     PortfolioSummary:
       additionalProperties: false
@@ -452,9 +441,6 @@ components:
         currency:
           example: JPY
           type: string
-        portfolio_id:
-          example: 1
-          type: integer
         total_market_value:
           example: 4220000
           minimum: 0.0
@@ -466,7 +452,6 @@ components:
       required:
       - cash_balance
       - currency
-      - portfolio_id
       - total_market_value
       - total_return_percent
       type: object
@@ -508,91 +493,41 @@ components:
     Transaction:
       additionalProperties: false
       properties:
-        asset_id:
-          example: 1
-          minimum: 1
-          type: integer
         asset_type:
           description: 資産クラス
           example: stock
           maxLength: 20
-          type: string
-        cost_basis:
-          description: 売却分の取得原価（売却時点の平均取得単価 × quantity）。`buy` では null。
-          example: 5917.32
-          minimum: 0.0
-          nullable: true
-          type: number
-        currency:
-          description: 通貨
-          example: JPY
           type: string
         date:
           description: 約定日時
           example: '2026-05-26T18:00:00'
           format: date-time
           type: string
-        name:
-          description: Asset name
-          example: Toyota Motor Corp.
-          type: string
-        portfolio_id:
-          description: 登録先のポートフォリオ
-          example: 1
-          minimum: 1
-          type: integer
-        price:
+        executed_price:
+          description: 最終約定金額
+          example: 16094.7
+          minimum: 0.0
+          type: number
+        executed_unit_price:
           description: 約定単価
           example: 2980.5
           minimum: 0.0
           type: number
-        quantity:
-          example: 5.4
-          exclusiveMinimum: true
-          minimum: 0.0
-          type: number
-        realized_pl:
-          description: 実現損益（total_amount − cost_basis）。損失なら負。`buy` はこの時点で損益が確定しないため
-            null。
-          example: 10177.38
-          nullable: true
-          type: number
-        realized_pl_percent:
-          description: 取得原価に対する実現損益率（％）。`buy` では null。
-          example: 171.99
-          nullable: true
-          type: number
+        name:
+          description: Asset name
+          example: Toyota Motor Corp.
+          type: string
         symbol:
           description: Yahoo Finance symbol
           example: 7203.T
           type: string
-        total_amount:
-          description: 約定代金（quantity × price）。手数料は含めない。
-          example: 16094.7
-          minimum: 0.0
-          type: number
-        transaction_id:
-          example: 1
-          minimum: 1
-          type: integer
-        transaction_type:
-          enum:
-          - buy
-          - sell
-          example: buy
       required:
-      - asset_id
       - asset_type
-      - currency
       - date
+      - executed_price
+      - executed_unit_price
       - name
-      - portfolio_id
-      - price
-      - quantity
       - symbol
-      - total_amount
-      - transaction_id
-      - transaction_type
       type: object
     TransactionBatchCreate:
       additionalProperties: false
@@ -608,23 +543,46 @@ components:
     TransactionItem:
       additionalProperties: false
       properties:
-        asset_id:
-          example: 1
-          minimum: 1
-          type: integer
+        name:
+          description: Asset name
+          example: Toyota Motor Corp.
+          maxLength: 200
+          minLength: 1
+          type: string
+        order_type:
+          description: Order execution type
+          enum:
+          - market
+          example: market
+          type: string
+        position:
+          description: Position direction
+          enum:
+          - long
+          example: long
+          type: string
         quantity:
           example: 5.4
           exclusiveMinimum: true
           minimum: 0.0
           type: number
+        ticker:
+          description: Market data ticker
+          example: 7203.T
+          maxLength: 50
+          minLength: 1
+          type: string
         transaction_type:
           enum:
           - buy
           - sell
           example: buy
       required:
-      - asset_id
+      - name
+      - order_type
+      - position
       - quantity
+      - ticker
       - transaction_type
       type: object
     TransactionPage:
@@ -697,6 +655,7 @@ openapi: 3.0.3
 paths:
   /api/v1/assets/{asset_id}/:
     get:
+      deprecated: true
       description: '公開データなので `user_id` は不要。保有数量や取得価額は
 
         `GET /portfolios/holdings` で取得する。'
@@ -725,6 +684,7 @@ paths:
         type: integer
   /api/v1/assets/{asset_id}/price-history:
     get:
+      deprecated: true
       description: '`asset_master.symbol` を使って Yahoo Finance の履歴を取得するか、
 
         `asset_data_history` のキャッシュ済み終値を読む想定。'
@@ -790,7 +750,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Portfolio'
+                $ref: '#/components/schemas/PortfolioCreateResult'
           description: Created
         '422':
           $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
@@ -859,29 +819,13 @@ paths:
           maximum: 100
           minimum: 1
           type: integer
-      - description: 特定銘柄の保有残高だけを返す
-        in: query
-        name: asset_id
-        required: false
-        schema:
-          example: 1
-          minimum: 1
-          type: integer
-      - description: 銘柄名またはティッカーの部分一致（大文字小文字を区別しない）
-        in: query
-        name: search
-        required: false
-        schema:
-          example: '7203'
-          maxLength: 100
-          minLength: 1
-          type: string
       - description: 資産クラスで絞り込む。省略時は全件（UI の `All`）。
         in: query
         name: asset_type
         required: false
         schema:
-          example: stock
+          default: all
+          example: all
           maxLength: 20
           type: string
       responses:
@@ -925,16 +869,16 @@ paths:
         name: range
         required: false
         schema:
-          default: 6m
+          default: all
           enum:
           - 1d
           - 1w
           - 1m
           - 3m
-          - 6m
+          - YTD
           - 1y
           - all
-          example: 1y
+          example: all
       - description: グラフの粒度
         in: query
         name: interval
@@ -987,7 +931,10 @@ paths:
       - portfolio
   /api/v1/portfolios/transactions:
     get:
-      description: '`asset_id` / `start_date` / `end_date` で絞り込める。
+      description: '`transaction_type` / `asset_type` / `start_date` / `end_date`
+        で
+
+        絞り込める。検索や銘柄単位の細かい絞り込みはフロントエンド側で行う。
 
         日付はどちらも指定日を含む（inclusive）。
 
@@ -1017,38 +964,25 @@ paths:
           maximum: 100
           minimum: 1
           type: integer
-      - description: 特定銘柄の取引だけを返す
-        in: query
-        name: asset_id
-        required: false
-        schema:
-          example: 1
-          minimum: 1
-          type: integer
-      - description: 銘柄名またはティッカーの部分一致（大文字小文字を区別しない）
-        in: query
-        name: search
-        required: false
-        schema:
-          example: '7203'
-          maxLength: 100
-          minLength: 1
-          type: string
       - description: '取引種別で絞り込む。省略時は全件（UI の `Type: All`）。'
         in: query
         name: transaction_type
         required: false
         schema:
+          default: all
           enum:
+          - all
           - buy
           - sell
-          example: buy
+          example: all
+          type: string
       - description: '資産クラスで絞り込む。省略時は全件（UI の `Asset Class: All`）。'
         in: query
         name: asset_type
         required: false
         schema:
-          example: stock
+          default: all
+          example: all
           maxLength: 20
           type: string
       - description: この日付以降（当日を含む）の取引を返す
@@ -1085,11 +1019,9 @@ paths:
       - transactions
   /api/v1/transactions:
     post:
-      description: '登録先はログイン情報から解決する。`buy` は保有数量を増やして
+      description: 'リクエストでは `asset_id` ではなく `ticker` と `name` で asset を特定する。
 
-        平均取得単価を再計算し、`sell` は保有数量を減らす。保有数量を超える
-
-        売却は 400。'
+        作成した取引の成功確認として、約定日時・銘柄・最終約定金額を返す。'
       requestBody:
         content:
           application/json:
@@ -1111,16 +1043,14 @@ paths:
           $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
-      summary: 取引を登録し、保有残高（holdings）を更新する。
+      summary: 取引を作成する。
       tags:
       - transactions
   /api/v1/transactions/batch:
     post:
-      description: 'ネットワーク通信回数を減らし、データベースの一括登録・一括更新効率を
+      description: '各 item は単件作成と同じ形で、成功時は各取引に対応する約定サマリーを返す。
 
-        高める。全件を検証してから更新するため、1 件でも不正なら何も更新しない。
-
-        登録先はログイン情報から解決した 1 つのポートフォリオで、全要素に共通。'
+        全件を検証してから作成するため、1 件でも不正なら何も作成しない。'
       requestBody:
         content:
           application/json:
@@ -1144,7 +1074,7 @@ paths:
           $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
-      summary: 複数の取引を一括登録し、各取引ごとに保有残高を更新する。
+      summary: 複数の取引を一括作成する。
       tags:
       - transactions
 servers:

@@ -6,7 +6,6 @@ from app.enums import TransactionType
 from app.schemas.common import (
     NON_NEGATIVE,
     POSITIVE,
-    POSITIVE_ID,
     DateRangeQueryMixin,
     PaginationQueryMixin,
     PaginationSchema,
@@ -14,15 +13,33 @@ from app.schemas.common import (
 
 
 class TransactionItemSchema(Schema):
-    """取引 1 件分の登録内容。単件登録のボディと一括登録の 1 要素に使う。
+    """取引 1 件分の作成内容。単件作成のボディと一括作成の 1 要素に使う。
 
     登録先のポートフォリオはログイン情報から解決するため、クライアントは
     `portfolio_id` を送らない。1 リクエストで複数のポートフォリオにまたがる
-    登録はできない。
+    作成はできない。
     """
 
-    asset_id = fields.Int(
-        required=True, validate=POSITIVE_ID, metadata={"example": 1}
+    # ticker + name identify the asset because ticker may not be unique.
+    ticker = fields.Str(
+        required=True,
+        validate=validate.Length(min=1, max=50),
+        metadata={"description": "Market data ticker", "example": "7203.T"},
+    )
+    name = fields.Str(
+        required=True,
+        validate=validate.Length(min=1, max=200),
+        metadata={"description": "Asset name", "example": "Toyota Motor Corp."},
+    )
+    position = fields.Str(
+        required=True,
+        validate=validate.OneOf(["long"]),
+        metadata={"description": "Position direction", "example": "long"},
+    )
+    order_type = fields.Str(
+        required=True,
+        validate=validate.OneOf(["market"]),
+        metadata={"description": "Order execution type", "example": "market"},
     )
     transaction_type = fields.Enum(
         TransactionType, by_value=True, required=True, metadata={"example": "buy"}
@@ -34,25 +51,9 @@ class TransactionItemSchema(Schema):
     )
 
 
-class TransactionSchema(TransactionItemSchema):
-    """取引（レスポンス）。
+class TransactionSchema(Schema):
+    """取引作成成功時に返す約定サマリー。"""
 
-    `transaction_id` は登録時に採番される。`price` と `date` は約定時に
-    サーバー側で確定するため、登録リクエストには含めない。`portfolio_id` は
-    サーバーが解決した登録先を返すだけで、リクエストでは受け取らない。
-    """
-
-    transaction_id = fields.Int(
-        required=True, validate=POSITIVE_ID, metadata={"example": 1}
-    )
-    portfolio_id = fields.Int(
-        required=True, validate=POSITIVE_ID,
-        metadata={"description": "登録先のポートフォリオ", "example": 1},
-    )
-    price = fields.Float(
-        required=True, validate=NON_NEGATIVE,
-        metadata={"description": "約定単価", "example": 2980.5},
-    )
     date = fields.DateTime(
         required=True,
         metadata={"description": "約定日時", "example": "2026-05-26T18:00:00"},
@@ -69,38 +70,13 @@ class TransactionSchema(TransactionItemSchema):
         required=True, validate=validate.Length(max=20),
         metadata={"description": "資産クラス", "example": "stock"},
     )
-    total_amount = fields.Float(
+    executed_price = fields.Float(
         required=True, validate=NON_NEGATIVE,
-        metadata={
-            "description": "約定代金（quantity × price）。手数料は含めない。",
-            "example": 16094.70,
-        },
+        metadata={"description": "最終約定金額", "example": 16094.70},
     )
-    cost_basis = fields.Float(
-        allow_none=True, validate=NON_NEGATIVE,
-        metadata={
-            "description": "売却分の取得原価（売却時点の平均取得単価 × quantity）。"
-            "`buy` では null。",
-            "example": 5917.32,
-        },
-    )
-    realized_pl = fields.Float(
-        allow_none=True,
-        metadata={
-            "description": "実現損益（total_amount − cost_basis）。損失なら負。"
-            "`buy` はこの時点で損益が確定しないため null。",
-            "example": 10177.38,
-        },
-    )
-    realized_pl_percent = fields.Float(
-        allow_none=True,
-        metadata={
-            "description": "取得原価に対する実現損益率（％）。`buy` では null。",
-            "example": 171.99,
-        },
-    )
-    currency = fields.Str(
-        required=True, metadata={"description": "通貨", "example": "JPY"}
+    executed_unit_price = fields.Float(
+        required=True, validate=NON_NEGATIVE,
+        metadata={"description": "約定単価", "example": 2980.5},
     )
 
 
@@ -154,29 +130,21 @@ class TransactionBatchCreateSchema(Schema):
 class TransactionQuerySchema(DateRangeQueryMixin, PaginationQueryMixin, Schema):
     """GET /portfolios/transactions のクエリパラメータ。"""
 
-    asset_id = fields.Int(
-        validate=POSITIVE_ID,
-        metadata={"description": "特定銘柄の取引だけを返す", "example": 1},
-    )
-    search = fields.Str(
-        validate=validate.Length(min=1, max=100),
-        metadata={
-            "description": "銘柄名またはティッカーの部分一致（大文字小文字を区別しない）",
-            "example": "7203",
-        },
-    )
-    transaction_type = fields.Enum(
-        TransactionType, by_value=True,
+    # Search and detailed asset filtering are handled by the frontend.
+    transaction_type = fields.Str(
+        load_default="all",
+        validate=validate.OneOf(["all", *[item.value for item in TransactionType]]),
         metadata={
             "description": "取引種別で絞り込む。省略時は全件（UI の `Type: All`）。",
-            "example": "buy",
+            "example": "all",
         },
     )
     asset_type = fields.Str(
+        load_default="all",
         validate=validate.Length(max=20),
         metadata={
             "description": "資産クラスで絞り込む。省略時は全件（UI の `Asset Class: All`）。",
-            "example": "stock",
+            "example": "all",
         },
     )
     start_date = fields.Date(

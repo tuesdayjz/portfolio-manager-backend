@@ -4,7 +4,6 @@ from marshmallow import Schema, fields, validate
 
 from app.schemas.common import (
     NON_NEGATIVE,
-    POSITIVE_ID,
     PaginationQueryMixin,
     PaginationSchema,
 )
@@ -18,11 +17,8 @@ class HoldingSchema(Schema):
     市場価格から都度計算するため保存しない。
     """
 
-    portfolio_id = fields.Int(
-        required=True, validate=POSITIVE_ID, metadata={"example": 1}
-    )
     asset_id = fields.Int(
-        required=True, validate=POSITIVE_ID,
+        required=True,
         metadata={"description": "Asset ID", "example": 1},
     )
     symbol = fields.Str(
@@ -124,21 +120,12 @@ class HoldingsPageSchema(Schema):
 class HoldingsQuerySchema(PaginationQueryMixin, Schema):
     """GET /portfolios/holdings のクエリパラメータ。"""
 
-    asset_id = fields.Int(
-        validate=POSITIVE_ID,
-        metadata={"description": "特定銘柄の保有残高だけを返す", "example": 1},
-    )
-    search = fields.Str(
-        validate=validate.Length(min=1, max=100),
-        metadata={
-            "description": "銘柄名またはティッカーの部分一致（大文字小文字を区別しない）",
-            "example": "7203",
-        },
-    )
+    # Search is handled by the frontend after the backend returns holdings data.
     asset_type = fields.Str(
+        load_default="all",
         validate=validate.Length(max=20),
         metadata={
             "description": "資産クラスで絞り込む。省略時は全件（UI の `All`）。",
-            "example": "stock",
+            "example": "all",
         },
     )

@@ -54,19 +54,35 @@ Swagger UI の Try it out で入力仕様の検証はできる（通れば 501�
 | メソッド | パス | タグ | 説明 |
 | --- | --- | --- | --- |
 | POST | `/portfolios/` | portfolio | ポートフォリオ作成 |
-| GET | `/portfolios/{portfolio_id}/summary` | portfolio | サマリー（取得価額・評価額・総資産・含み損益） |
-| GET | `/portfolios/{portfolio_id}/holdings` | portfolio | 保有残高一覧 |
-| GET | `/portfolios/{portfolio_id}/allocation` | portfolio | 資産配分（種別・通貨・銘柄別） |
-| GET | `/portfolios/{portfolio_id}/performance` | portfolio | 推移グラフ |
-| GET | `/assets/{asset_id}/` | assets | 資産マスタ情報 |
-| GET | `/assets/{asset_id}/price-history` | assets | 過去の市場価格（OHLCV） |
-| GET | `/portfolios/{portfolio_id}/transactions` | transactions | 取引履歴の検索 |
-| POST | `/portfolios/{portfolio_id}/transactions` | transactions | 取引の登録（単件） |
-| POST | `/portfolios/{portfolio_id}/transactions/batch` | transactions | 取引の一括登録 |
+| GET | `/portfolios/summary` | portfolio | サマリー（取得価額・評価額・総資産・含み損益） |
+| GET | `/portfolios/holdings` | portfolio | 保有残高一覧 |
+| GET | `/portfolios/allocation` | portfolio | 資産配分（種別・通貨・銘柄別） |
+| GET | `/portfolios/performance` | portfolio | 推移グラフ |
+| GET | `/assets/{asset_id}/` | assets | 資産マスタ情報（deprecated） |
+| GET | `/assets/{asset_id}/price-history` | assets | 過去の市場価格（deprecated） |
+| GET | `/portfolios/transactions` | transactions | 取引履歴の検索 |
+| POST | `/transactions` | transactions | 取引の登録（単件） |
+| POST | `/transactions/batch` | transactions | 取引の一括登録 |
 
-`/transactions` の絞り込み: `user_id`（必須）, `asset_id`, `start_date`, `end_date`。
-`start_date` / `end_date` はどちらも指定日を含む。
-`/performance` は `start_date`, `end_date`, `interval`（`1d` / `1wk` / `1mo`）を取る。
+`POST /portfolios/` は `name`、任意の `currency`（フロントエンド既定値は
+`USD`）、任意の `cash_balance` を受け取り、成功時は `message` だけを返す。
+
+`/holdings` の絞り込みは `asset_type`（既定値 `all`）のみ。`asset_id` と
+`search` は受け取らず、検索はフロントエンド側で行う。`/allocation` の
+`items` は分類名を `category` として返す。
+
+`/performance` は `start_date`, `end_date`, `range`, `interval` を取る。
+`range` は `1d` / `1w` / `1m` / `3m` / `YTD` / `1y` / `all`、
+`interval` の既定値は `1d`。レスポンスは `return_1d`, `return_1w`,
+`return_1m`, `return_3m`, `return_YTD`, `return_1y`, `return_total` を
+それぞれ `{ amount, percent }` で返す。
+
+`/transactions` の絞り込みは `transaction_type`, `asset_type`（既定値
+`all`）, `start_date`, `end_date`。`asset_id` と `search` は受け取らない。
+単件作成と一括作成の各 item は `ticker`, `name`, `position`, `order_type`,
+`transaction_type`, `quantity` を受け取り、成功時は作成された取引の確認として
+`date`, `symbol`, `name`, `executed_price`, `executed_unit_price`,
+`asset_type` の約定サマリーを返す。
 
 ### 設計メモ
 
@@ -75,7 +91,8 @@ Swagger UI の Try it out で入力仕様の検証はできる（通れば 501�
   `user_id` をクエリパラメータで渡す。本番ではログイン情報から解決する想定なので、
   その際は `app/schemas/common.py` の `UserIdQuerySchema` を外して認証に差し替える。
   公開の資産・市場データに `user_id` は不要。
-- **`portfolio_id` はパスで受ける。** private なポートフォリオデータは必ずパスに含める。
+- **`portfolio_id` はレスポンスで返さない。** private なポートフォリオデータは
+  ログイン情報から解決する想定で、クライアントには公開しない。
 - **`current_price` は保存しない。** 市場価格は Yahoo Finance または
   `asset_data_history` 由来で、Supabase `holdings` には書かない。
 - **`cash_balance` はモック専用。** 現行の Supabase スキーマに現金残高のカラムがない。

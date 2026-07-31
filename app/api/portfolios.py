@@ -12,8 +12,8 @@ from app.schemas.portfolio import (
     PerformanceGraphSchema,
     PerformanceQuerySchema,
     PortfolioAllocationSchema,
+    PortfolioCreateResultSchema,
     PortfolioCreateSchema,
-    PortfolioSchema,
     PortfolioSummarySchema,
 )
 
@@ -31,7 +31,7 @@ PORTFOLIO_NOT_FOUND = "The specified portfolio does not exist"
 @blp.route("/")
 class PortfolioCollection(MethodView):
     @blp.arguments(PortfolioCreateSchema)
-    @blp.response(201, PortfolioSchema)
+    @blp.response(201, PortfolioCreateResultSchema)
     def post(self, payload):
         """ポートフォリオを作成する。"""
         abort(501, message=NOT_IMPLEMENTED)
