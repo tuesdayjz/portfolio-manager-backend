@@ -44,14 +44,13 @@ class BaseConfig:
         "info": {
             "description": (
                 "個人向けポートフォリオ管理 API。\n\n"
-                "- `auth` … ユーザー登録、ログイン、ログアウト\n"
                 "- `portfolio` … ポートフォリオの作成、サマリー、保有残高、資産配分、推移\n"
                 "- `assets` … 資産マスタと Yahoo Finance の市場価格\n"
                 "- `transactions` … 売買の取引履歴\n\n"
                 "実際の証券発注は行わない。売買は取引履歴の記録と保有残高の更新だけを行う。\n\n"
-                "private なデータは `user_id` で絞り込む。モック／開発中は private な "
-                "GET API に `user_id` をクエリパラメータで渡す。本番ではログイン情報から "
-                "`user_id` を解決する想定。公開の資産・市場データに `user_id` は不要。"
+                "private なデータの対象ポートフォリオはログイン情報から解決する。"
+                "クライアントは `portfolio_id` も `user_id` も送らない。"
+                "公開の資産・市場データはポートフォリオに紐づかない。"
             ),
             "contact": {"name": "Portfolio Manager Team"},
         },

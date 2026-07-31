@@ -2,11 +2,10 @@
 
 from flask_smorest import Api
 
-from app.api import assets, auth, portfolios, transactions
+from app.api import assets, portfolios, transactions
 
 
 def register_blueprints(api: Api) -> None:
-    api.register_blueprint(auth.blp)
     api.register_blueprint(portfolios.blp)
     api.register_blueprint(assets.blp)
     api.register_blueprint(transactions.blp)
