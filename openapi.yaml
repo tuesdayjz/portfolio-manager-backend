@@ -647,6 +647,13 @@ components:
       - realized_pl_percent
       - sell_count
       type: object
+  securitySchemes:
+    bearerAuth:
+      bearerFormat: Supabase access token
+      description: 'React が Supabase Auth で取得した access_token を `Authorization: Bearer
+        <token>` として送る。'
+      scheme: bearer
+      type: http
 info:
   contact:
     name: Portfolio Manager Team
@@ -655,7 +662,7 @@ info:
 
     - `portfolio` … ポートフォリオの作成、サマリー、保有残高、資産配分、推移
 
-    - `assets` … 資産マスタと Yahoo Finance の市場価格
+    - `assets` … 資産マスタと市場価格
 
     - `transactions` … 売買の取引履歴
 
@@ -771,6 +778,8 @@ paths:
           $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
+      security:
+      - bearerAuth: []
       summary: ポートフォリオを作成する。
       tags:
       - portfolio
@@ -804,6 +813,8 @@ paths:
           $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
+      security:
+      - bearerAuth: []
       summary: 資産配分を取得する。
       tags:
       - portfolio
@@ -856,6 +867,8 @@ paths:
           $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
+      security:
+      - bearerAuth: []
       summary: 保有残高一覧を取得する。
       tags:
       - portfolio
@@ -926,6 +939,8 @@ paths:
           $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
+      security:
+      - bearerAuth: []
       summary: ポートフォリオ推移グラフを取得する。
       tags:
       - portfolio
@@ -947,6 +962,8 @@ paths:
           description: The specified portfolio does not exist
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
+      security:
+      - bearerAuth: []
       summary: ポートフォリオサマリーを取得する。
       tags:
       - portfolio
@@ -1035,6 +1052,8 @@ paths:
           $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
+      security:
+      - bearerAuth: []
       summary: 取引履歴を取得する。
       tags:
       - transactions
@@ -1068,6 +1087,8 @@ paths:
           $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
+      security:
+      - bearerAuth: []
       summary: 取引を作成する。
       tags:
       - transactions
@@ -1099,6 +1120,8 @@ paths:
           $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
+      security:
+      - bearerAuth: []
       summary: 複数の取引を一括作成する。
       tags:
       - transactions

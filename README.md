@@ -5,9 +5,8 @@ flask-smorest で OpenAPI / Swagger UI とリクエスト・レスポンスス�
 定義している。portfolio / assets / transactions の業務処理はまだ未実装で、
 該当エンドポイントは `501 Not Implemented` を返す。
 
-API 設計は Flask + flask-smorest で管理し、OpenAPI 3 仕様は Marshmallow
-スキーマから自動生成される。Supabase 接続設定と RLS / database connection
-tests は実装済み。
+Supabase 接続設定、Supabase client helper、database connection tests、
+RLS tests は実装済み。
 
 ### セットアップ
 
@@ -22,9 +21,8 @@ export FLASK_APP=wsgi.py
 
 > **ポートは 5001 を使う。** macOS の AirPlay レシーバーが `*:5000` を
 > 掴んでいるため、5000 番だと `localhost` が AirPlay 側に吸われて
-> `403 Forbidden`（`Server: AirTunes`）が返る。`.env` に
-> `FLASK_RUN_PORT=5001` を入れておけば `flask run` だけで済む。
-> 5001 が使えない場合は、開発中は `--port=5003` で起動してよい。
+> `403 Forbidden`（`Server: AirTunes`）が返る。5001 が使えない場合は、
+> 開発中は `--port=5003` で起動してよい。
 
 ### Supabase 設定
 
@@ -43,7 +41,7 @@ DEFAULT_BASE_CURRENCY=JPY
 - `.env` は `.gitignore` 対象なので、ローカル環境だけに置く。
 
 Flask アプリ内では Supabase 設定を直接 `os.getenv` で読まず、`app.config`
-経由で client を作成する:
+経由で client を作成する。
 
 ```python
 from app.services.supabase import get_supabase_service_client
@@ -51,23 +49,41 @@ from app.services.supabase import get_supabase_service_client
 client = get_supabase_service_client()
 ```
 
-`app.services.supabase.get_supabase_service_client()` は
-`current_app.config["SUPABASE_URL"]` と
+`get_supabase_service_client()` は `current_app.config["SUPABASE_URL"]` と
 `current_app.config["SUPABASE_SERVICE_ROLE_KEY"]` を使う。frontend/user session
 相当の client が必要な場合は `get_supabase_anon_client()` を使う。
 `get_*_client()` は Flask app に cache される。テストなどで複数ユーザーの
 session を分けたい場合は `create_supabase_anon_client()` のような non-cached
 client creator を使う。
 
-認証の方針:
+### 認証方針
 
 - React は Supabase Auth を直接使って signup / login する。
 - React が private table を直接読む場合は Supabase access token と RLS で保護する。
+- React が Flask の private API を呼ぶ場合は
+  `Authorization: Bearer <access_token>` を header に付ける。
 - holdings / transactions など重要な write は Flask backend から
   `SUPABASE_SERVICE_ROLE_KEY` を使って実行する。
-- `SUPABASE_SERVICE_ROLE_KEY` は RLS を bypass できるため、backend local env のみに置く。
+- `SUPABASE_SERVICE_ROLE_KEY` は RLS を bypass できるため、backend local/server env のみに置く。
 
-private table の RLS:
+Flask 側では `app.auth.require_auth()` が Supabase access token を検証し、
+成功すると以下を request context に保存する。
+
+```python
+from flask import g
+
+g.current_user_id
+g.current_user_email
+g.current_access_token
+```
+
+private API の実装では client から `user_id` を受け取らず、
+`g.current_user_id` を使って対象ユーザーを解決する。Swagger UI では右上の
+**Authorize** から Supabase access token を入力する。
+
+### Supabase RLS
+
+private table の read policy:
 
 | Table | Read policy |
 | --- | --- |
@@ -76,7 +92,7 @@ private table の RLS:
 | `holdings` | `holdings -> portfolio.user_id = auth.uid()` の row だけ読める |
 | `transactions` | `transactions -> holdings -> portfolio.user_id = auth.uid()` の row だけ読める |
 
-shared table の方針:
+shared table:
 
 ```text
 currency
@@ -86,7 +102,8 @@ asset_master
 asset_data_history
 ```
 
-logged-in user は read 可能。write は backend/service role 側に寄せる。
+logged-in user は shared table を read できる。write は backend/service role
+client に寄せる。
 
 ### テスト
 
@@ -94,6 +111,12 @@ logged-in user は read 可能。write は backend/service role 側に寄せる�
 
 ```bash
 .venv/bin/python -m unittest tests.test_config
+```
+
+Auth helper と設定をテストする場合:
+
+```bash
+.venv/bin/python -m unittest tests.test_auth tests.test_config
 ```
 
 Supabase への接続と、全テーブルへの read 権限を確認する場合:
@@ -106,13 +129,13 @@ Supabase への接続と、全テーブルへの read 権限を確認する場�
 GitHub に共有するテンプレートは `tests/.env.example` に置き、実際の
 テストユーザーとパスワードはローカルの `tests/.env` にだけ置く。
 
-接続テストを有効にするには `tests/.env` で以下を設定する:
+接続テストを有効にするには `tests/.env` で以下を設定する。
 
 ```text
 RUN_SUPABASE_CONNECTION_TESTS=true
 ```
 
-接続テストでは以下を確認する:
+接続テストでは以下を確認する。
 
 ```text
 Connection Setup: configured URL/key で client を作成し、軽量 read で active 状態を確認する
@@ -151,17 +174,17 @@ Database connection / Supabase tests の内容:
 | Test file | 内容 |
 | --- | --- |
 | `test_supabase_connection.py` | Supabase config で client を作成し、basic read、invalid key exception、client close/release を確認する。 |
-| `test_supabase_user_rls.py` | `RUN_SUPABASE_REAL_USER=false` のとき mock users で private/shared RLS を確認し、`true` のとき real users `user001` / `user002` の holdings isolation を確認する。 |
+| `test_supabase_user_rls.py` | `RUN_SUPABASE_REAL_USER=false` のとき mock users で private/shared RLS を確認し、`true` のとき real users の holdings isolation を確認する。 |
 
-RLS テストは `RUN_SUPABASE_REAL_USER` で mock user / real user を切り替える:
+RLS テストは `RUN_SUPABASE_REAL_USER` で mock user / real user を切り替える。
 
 ```text
 RUN_SUPABASE_REAL_USER=false  # mock user で private/public RLS tests を実行
-RUN_SUPABASE_REAL_USER=true   # real user001/user002 で RLS tests を実行
+RUN_SUPABASE_REAL_USER=true   # real user で RLS tests を実行
 ```
 
 Real-user RLS で 2 人のユーザーのデータ分離を確認する場合は、ローカルの
-`tests/.env` に以下を設定する:
+`tests/.env` に以下を設定する。
 
 ```text
 RUN_SUPABASE_REAL_USER=true
@@ -184,15 +207,12 @@ SUPABASE_SECOND_TEST_USER_PASSWORD=
 | http://localhost:5001/openapi.json | OpenAPI 3.0.3 仕様 |
 
 リポジトリには生成済みの [`openapi.yaml`](openapi.yaml) をコミットしてある。
-スキーマを変更したら再生成すること:
+スキーマを変更したら再生成すること。
 
 ```bash
-.venv/bin/flask export-openapi                  # → openapi.yaml
-.venv/bin/flask export-openapi -f json          # → openapi.json
+.venv/bin/flask export-openapi                  # -> openapi.yaml
+.venv/bin/flask export-openapi -f json          # -> openapi.json
 ```
-
-> 組み込みの `flask openapi write -f yaml` でも出力できるが、日本語が
-> `\uXXXX` にエスケープされて差分が読めないため、上のコマンドを使う。
 
 **API 設計はスキーマが単一の情報源。** `app/schemas/` を直せば仕様書・
 バリデーション・Swagger UI がまとめて追従する。仕様書だけ手で書き換える運用はしない。
@@ -260,7 +280,7 @@ Supabase のテーブル定義と将来の実装方針は
 
 ### 構成
 
-```
+```text
 app/
 ├── schemas/       Marshmallow スキーマ（= OpenAPI 定義。ここが本体）
 │   ├── portfolio.py   サマリー / 配分 / 推移グラフ
@@ -270,6 +290,7 @@ app/
 │   └── common.py      共通バリデーターと pagination / date range
 ├── api/           エンドポイント定義（パスと入出力の宣言のみ。処理は未実装）
 │   └── parameters.py  パスパラメータの OpenAPI 定義
+├── auth.py        Supabase access token を検証し g.current_user_id を設定する
 ├── enums.py       TransactionType / Interval
 ├── services/
 │   └── supabase.py    Flask app.config から Supabase client を作成する
@@ -277,6 +298,7 @@ app/
 
 tests/
 ├── config.py
+├── test_auth.py
 ├── test_config.py
 └── database_connection/
     ├── helpers.py

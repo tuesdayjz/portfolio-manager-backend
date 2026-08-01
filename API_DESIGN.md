@@ -20,6 +20,8 @@ holdings の更新だけを行う。
 - React は Supabase Auth を直接使って signup / login する。
 - React は Supabase access token を使って private table を直接 read できる。
 - private table の read 制御は Supabase RLS で行う。
+- React が Flask private API を呼ぶ場合は
+  `Authorization: Bearer <access_token>` を header に付ける。
 - holdings / transactions など重要な write は Flask backend 経由にする。
 - Flask backend は `SUPABASE_SERVICE_ROLE_KEY` を使って write する。
 - `SUPABASE_SERVICE_ROLE_KEY` は frontend や GitHub に出さない。
@@ -31,8 +33,8 @@ private portfolio data では client から owner identifier を受け取らな�
 - `user_id` は path / query / request body に出さない。
 - `portfolio_id` も private endpoint の path / query / request body に出さない。
 - backend はログイン済み user context から対象 user / portfolio を解決する。
-- response には必要に応じて `portfolio_id` を返してよい。
-- public asset / market data は portfolio scope を持たない。
+- response にも `portfolio_id` は返さない。
+- public asset / Yahoo Finance market data は portfolio scope を持たない。
 
 この設計により、client が他人の `portfolio_id` を指定して存在確認する経路を
 作らない。
@@ -42,7 +44,7 @@ private portfolio data では client から owner identifier を受け取らな�
 | Tag | Japanese label | 内容 |
 | --- | --- | --- |
 | `portfolio` | ポートフォリオ関連 | portfolio 作成、summary、holdings、allocation、performance |
-| `assets` | 資産関連 | asset master と Yahoo Finance / market price |
+| `assets` | 資産関連 | asset master と market price |
 | `transactions` | 取引履歴関連 | buy / sell transaction history |
 
 すべての API path は `/api/v1` 配下。
@@ -245,6 +247,31 @@ client = get_supabase_service_client()
 | `close_supabase_client(client)` | HTTP resources を解放する |
 | `close_supabase_clients(app=None)` | Flask app に cached された clients を解放する |
 
+## Flask Auth Context
+
+`app.auth.require_auth()` は Supabase Auth の access token を検証し、Flask の
+request context に current user を保存する。
+
+Request:
+
+```http
+Authorization: Bearer <supabase_access_token>
+```
+
+Backend context:
+
+```python
+from flask import g
+
+g.current_user_id
+g.current_user_email
+g.current_access_token
+```
+
+private API 実装では `user_id` を request body / query から受け取らず、
+`g.current_user_id` を使う。Swagger UI では OpenAPI security scheme
+`bearerAuth` を使うため、右上の Authorize button から token を入力できる。
+
 ## Test Design
 
 ### Unit Tests
@@ -259,6 +286,16 @@ client = get_supabase_service_client()
 - secrets 未設定時は safe local defaults になる。
 - Supabase client helper が Flask `app.config` を使う。
 - 必要な config key がない場合は明確に失敗する。
+
+```bash
+.venv/bin/python -m unittest tests.test_auth
+```
+
+`tests.test_auth` は以下を確認する。
+
+- Bearer token から Supabase Auth user を取得し、`g.current_user_id` を設定する。
+- token がない場合は `401`。
+- token が不正または期限切れの場合は `401`。
 
 ### Database Connection Tests
 
