@@ -26,6 +26,7 @@ ASSET_NOT_FOUND = "The specified asset does not exist"
 
 @blp.route("/<int:asset_id>/", parameters=[ASSET_ID])
 class AssetItem(MethodView):
+    @blp.doc(deprecated=True)
     @blp.response(200, AssetInfoSchema)
     @blp.alt_response(404, description=ASSET_NOT_FOUND)
     def get(self, asset_id):
@@ -39,6 +40,7 @@ class AssetItem(MethodView):
 
 @blp.route("/<int:asset_id>/price-history", parameters=[ASSET_ID])
 class AssetPriceHistory(MethodView):
+    @blp.doc(deprecated=True)
     @blp.arguments(PriceHistoryQuerySchema, location="query")
     @blp.response(200, PriceHistoryItemSchema(many=True))
     @blp.alt_response(404, description=ASSET_NOT_FOUND)
