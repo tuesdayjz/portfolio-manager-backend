@@ -34,7 +34,7 @@ class BaseConfig:
     PROPAGATE_EXCEPTIONS = True
 
     # ---- Database (Supabase / PostgreSQL) --------------------------------
-    SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL")
+    SQLALCHEMY_DATABASE_URI = _env("DATABASE_URL")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
         # Supabase は待機中のコネクションを黙って切るので、
@@ -73,8 +73,7 @@ class BaseConfig:
             "contact": {"name": "Portfolio Manager Team"},
         },
         "servers": [
-            # macOS の AirPlay レシーバーが 5000 を占有し 403 を返すため 5001 を使う。
-            {"url": "http://localhost:5001", "description": "Local development"},
+            {"url": "/", "description": "Current Swagger UI origin"},
         ],
         "components": {
             "securitySchemes": {
@@ -100,12 +99,13 @@ class DevelopmentConfig(BaseConfig):
 class TestingConfig(BaseConfig):
     TESTING = True
     # 本番の Supabase を汚さないよう、テストは専用の DB に向ける。
-    SQLALCHEMY_DATABASE_URI = os.getenv("TEST_DATABASE_URL", "sqlite+pysqlite:///:memory:")
-    SQLALCHEMY_ENGINE_OPTIONS: dict = {}
+    SQLALCHEMY_DATABASE_URI = _env("TEST_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+    SQLALCHEMY_ENGINE_OPTIONS = {}
 
 
 class ProductionConfig(BaseConfig):
     DEBUG = False
+    SQLALCHEMY_DATABASE_URI = _env("DATABASE_URL")
 
 
 _CONFIGS = {

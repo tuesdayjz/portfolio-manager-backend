@@ -6,8 +6,8 @@ Portfolio Manager backend は、個人向けポートフォリオ管理 API の 
 アプリケーションである。現時点では OpenAPI / Swagger UI と
 Marshmallow schema による request / response validation を中心に実装している。
 
-portfolio / assets / transactions の業務処理はまだ未実装で、該当 API は
-`501 Not Implemented` を返す。Supabase 接続設定、Supabase client helper、
+`POST /api/v1/portfolios/` は実装済みで、それ以外の portfolio / assets /
+transactions の業務処理はまだ未実装。Supabase 接続設定、Supabase client helper、
 database connection tests、RLS tests は実装済み。
 
 この API は実際の証券発注を行わない。buy / sell は将来的に取引履歴の記録と
@@ -55,7 +55,7 @@ private portfolio data では client から owner identifier を受け取らな�
 
 | Method | Path | 状態 | 内容 |
 | --- | --- | --- | --- |
-| `POST` | `/api/v1/portfolios/` | 501 | portfolio を作成する |
+| `POST` | `/api/v1/portfolios/` | 201 | portfolio を作成する |
 | `GET` | `/api/v1/portfolios/summary` | 501 | cash balance、market value、return rate を返す |
 | `GET` | `/api/v1/portfolios/holdings` | 501 | holdings list、totals、pagination を返す |
 | `GET` | `/api/v1/portfolios/allocation` | 501 | `asset_type` / `currency` / `asset` / `sector` で配分を返す |

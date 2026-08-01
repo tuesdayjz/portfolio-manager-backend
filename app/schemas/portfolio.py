@@ -10,7 +10,7 @@ from app.schemas.common import (
 )
 
 _CASH_BALANCE_NOTE = (
-    "Mock-only cash value; current Supabase schema has no cash balance column"
+    "Initial cash amount stored as a cash holding with quantity 1"
 )
 
 
@@ -30,6 +30,15 @@ class PortfolioCreateResultSchema(Schema):
     """ポートフォリオ作成の軽量レスポンス。"""
 
     message = fields.Str(required=True, metadata={"example": "Portfolio created"})
+
+
+class PortfolioCreateConflictSchema(Schema):
+    """同一ユーザーがすでに portfolio を持つ場合のレスポンス。"""
+
+    message = fields.Str(
+        required=True,
+        metadata={"example": "Portfolio already exists for this user."},
+    )
 
 
 class PortfolioSchema(PortfolioCreateSchema):

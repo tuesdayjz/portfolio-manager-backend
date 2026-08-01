@@ -2,8 +2,8 @@
 
 ポートフォリオ管理 API の backend リポジトリ。現時点では Flask +
 flask-smorest で OpenAPI / Swagger UI とリクエスト・レスポンススキーマを
-定義している。portfolio / assets / transactions の業務処理はまだ未実装で、
-該当エンドポイントは `501 Not Implemented` を返す。
+定義している。`POST /api/v1/portfolios/` は実装済みで、それ以外の
+portfolio / assets / transactions の業務処理はまだ未実装。
 
 Supabase 接続設定、Supabase client helper、database connection tests、
 RLS tests は実装済み。
@@ -42,12 +42,16 @@ SUPABASE_URL=https://gvtxkyimbroikdfjsacb.supabase.co
 SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
 DEFAULT_BASE_CURRENCY=USD
+DATABASE_URL=postgresql+psycopg://postgres.<project-ref>:<password>@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres?sslmode=require
+TEST_DATABASE_URL=sqlite+pysqlite:///:memory:
 ```
 
 - `SUPABASE_ANON_KEY`: Supabase Dashboard の publishable / anon key。
 - `SUPABASE_SERVICE_ROLE_KEY`: Supabase Dashboard の secret / service role key。
 - `SUPABASE_SERVICE_ROLE_KEY` は接続確認・RLS 検証用の backend secret。frontend や Git には出さない。
 - `DEFAULT_BASE_CURRENCY`: portfolio 作成時の既定通貨。frontend / backend ともに `USD` を既定値にする。
+- `DATABASE_URL`: backend から Supabase PostgreSQL へ接続するための SQLAlchemy URI。
+- `TEST_DATABASE_URL`: unit test 用 DB URI。未設定時は in-memory SQLite を使う。
 - `.env` は `.gitignore` 対象なので、ローカル環境だけに置く。
 
 Flask アプリ内では Supabase 設定を直接 `os.getenv` で読まず、`app.config`
@@ -132,10 +136,23 @@ Auth helper と設定をテストする場合:
 .venv/bin/python -m unittest tests.test_auth tests.test_config
 ```
 
+portfolio 作成 API をテストする場合:
+
+```bash
+.venv/bin/python -m unittest tests.test_portfolio_create
+```
+
 Supabase への接続と、全テーブルへの read 権限を確認する場合:
 
 ```bash
 .venv/bin/python -W ignore::DeprecationWarning -m unittest tests.database_connection.test_supabase_connection
+```
+
+backend の SQLAlchemy engine が `DATABASE_URL` で PostgreSQL に接続できることを
+確認する場合:
+
+```bash
+.venv/bin/python -m unittest tests.database_connection.test_sqlalchemy_connection
 ```
 
 この接続テストは `.env` と `tests/.env` の Supabase keys を使う。
@@ -249,8 +266,8 @@ import し忘れると差分が空のマイグレーションが生成される�
 **API 設計はスキーマが単一の情報源。** `app/schemas/` を直せば仕様書・
 バリデーション・Swagger UI がまとめて追従する。仕様書だけ手で書き換える運用はしない。
 
-処理は未実装だが**リクエストのバリデーションは動く**ので、
-Swagger UI の Try it out で入力仕様の検証はできる（通れば 501、通らなければ 422）。
+未実装 endpoint でも**リクエストのバリデーションは動く**ので、Swagger UI の
+Try it out で入力仕様の検証はできる（通れば 501、通らなければ 422）。
 
 ### エンドポイント
 
@@ -271,6 +288,7 @@ Swagger UI の Try it out で入力仕様の検証はできる（通れば 501�
 
 `POST /portfolios/` は `name`、任意の `currency`（フロントエンド既定値は
 `USD`）、任意の `cash_balance` を受け取り、成功時は `message` だけを返す。
+すでに portfolio があるユーザーの場合は `409 Conflict` を返す。
 `cash_balance` は portfolio 作成時に cash holding として登録し、quantity は
 `1` として扱う。
 

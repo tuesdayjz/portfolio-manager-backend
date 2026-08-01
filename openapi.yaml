@@ -420,8 +420,8 @@ components:
       properties:
         cash_balance:
           default: 0.0
-          description: Mock-only cash value; current Supabase schema has no cash balance
-            column
+          description: Initial cash amount stored as a cash holding with quantity
+            1
           example: 1000000
           minimum: 0.0
           type: number
@@ -434,6 +434,15 @@ components:
           type: string
       required:
       - name
+      type: object
+    PortfolioCreateConflict:
+      additionalProperties: false
+      properties:
+        message:
+          example: Portfolio already exists for this user.
+          type: string
+      required:
+      - message
       type: object
     PortfolioCreateResult:
       additionalProperties: false
@@ -448,8 +457,8 @@ components:
       additionalProperties: false
       properties:
         cash_balance:
-          description: Mock-only cash value; current Supabase schema has no cash balance
-            column
+          description: Initial cash amount stored as a cash holding with quantity
+            1
           example: 1250000
           minimum: 0.0
           type: number
@@ -774,6 +783,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/PortfolioCreateResult'
           description: Created
+        '409':
+          content:
+            application/json:
+              example:
+                message: Portfolio already exists for this user.
+              schema:
+                $ref: '#/components/schemas/PortfolioCreateConflict'
+          description: Portfolio already exists for this user
         '422':
           $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
@@ -1126,8 +1143,8 @@ paths:
       tags:
       - transactions
 servers:
-- description: Local development
-  url: http://localhost:5001
+- description: Current Swagger UI origin
+  url: /
 tags:
 - description: ポートフォリオ関連
   name: portfolio

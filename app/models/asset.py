@@ -36,7 +36,7 @@ class AssetType(db.Model):
     asset_type: Mapped[str] = mapped_column(Text, nullable=False)
 
     asset_master: Mapped[list["AssetMaster"]] = relationship(
-        "AssetMaster", back_populates="asset_type_"
+        "AssetMaster", back_populates="asset_type"
     )
 
 
@@ -76,8 +76,6 @@ class AssetMaster(db.Model):
     )
     ticker: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[Optional[str]] = mapped_column(Text)
-    # asset_type_id を参照する前の名残のカラム。参照は asset_type_ 側を使う。
-    asset_type: Mapped[Optional[str]] = mapped_column(Text)
     asset_type_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         Uuid, server_default=text("gen_random_uuid()")
     )
@@ -85,8 +83,8 @@ class AssetMaster(db.Model):
         Uuid, server_default=text("gen_random_uuid()")
     )
 
-    # カラム名 asset_type と衝突するため、リレーション側に末尾のアンダースコアを付ける。
-    asset_type_: Mapped[Optional["AssetType"]] = relationship(
+    # 資産クラスは旧 text column ではなく asset_type_id 経由で参照する。
+    asset_type: Mapped[Optional["AssetType"]] = relationship(
         "AssetType", back_populates="asset_master"
     )
     currency: Mapped[Optional["Currency"]] = relationship(

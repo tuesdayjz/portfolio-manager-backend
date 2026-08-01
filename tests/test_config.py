@@ -30,6 +30,7 @@ class SupabaseConfigTest(unittest.TestCase):
             "SUPABASE_ANON_KEY": "anon-test-key",
             "SUPABASE_SERVICE_ROLE_KEY": "service-role-test-key",
             "DEFAULT_BASE_CURRENCY": "USD",
+            "TEST_DATABASE_URL": "sqlite+pysqlite:///test-config.db",
         }
 
         with patch.dict(os.environ, env):
@@ -40,6 +41,9 @@ class SupabaseConfigTest(unittest.TestCase):
         self.assertEqual(config.SUPABASE_ANON_KEY, "anon-test-key")
         self.assertEqual(config.SUPABASE_SERVICE_ROLE_KEY, "service-role-test-key")
         self.assertEqual(config.DEFAULT_BASE_CURRENCY, "USD")
+        self.assertEqual(
+            config.SQLALCHEMY_DATABASE_URI, "sqlite+pysqlite:///test-config.db"
+        )
 
         importlib.reload(config_module)
 
@@ -64,6 +68,7 @@ class SupabaseConfigTest(unittest.TestCase):
         self.assertIsNone(config.SUPABASE_ANON_KEY)
         self.assertIsNone(config.SUPABASE_SERVICE_ROLE_KEY)
         self.assertEqual(config.DEFAULT_BASE_CURRENCY, "USD")
+        self.assertEqual(config.SQLALCHEMY_DATABASE_URI, "sqlite+pysqlite:///:memory:")
 
         importlib.reload(config_module)
 

@@ -52,7 +52,6 @@ def upgrade():
     sa.Column('id', sa.Uuid(), server_default=sa.text('(gen_random_uuid())'), nullable=False),
     sa.Column('ticker', sa.Text(), nullable=False),
     sa.Column('name', sa.Text(), nullable=True),
-    sa.Column('asset_type', sa.Text(), nullable=True),
     sa.Column('asset_type_id', sa.Uuid(), server_default=sa.text('(gen_random_uuid())'), nullable=True),
     sa.Column('currency_id', sa.Uuid(), server_default=sa.text('(gen_random_uuid())'), nullable=True),
     sa.ForeignKeyConstraint(['asset_type_id'], ['asset_type.id'], name='asset_master_asset_type_id_fkey'),
