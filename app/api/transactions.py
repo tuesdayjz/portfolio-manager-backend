@@ -6,6 +6,7 @@
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 
+from app.auth import require_auth
 from app.schemas.transaction import (
     TransactionBatchCreateSchema,
     TransactionItemSchema,
@@ -27,6 +28,7 @@ PORTFOLIO_NOT_FOUND = "The specified portfolio does not exist"
 
 @blp.route("/portfolios/transactions")
 class PortfolioTransactionCollection(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
     @blp.arguments(TransactionQuerySchema, location="query")
     @blp.response(200, TransactionPageSchema)
     @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
@@ -41,11 +43,13 @@ class PortfolioTransactionCollection(MethodView):
         で返す。`buy` は売却時まで損益が確定しないため、どちらも `sell` だけを
         対象にする。
         """
+        require_auth()
         abort(501, message=NOT_IMPLEMENTED)
 
 
 @blp.route("/transactions")
 class TransactionCollection(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
     @blp.arguments(TransactionItemSchema)
     @blp.response(201, TransactionSchema)
     @blp.alt_response(400, description="Cannot sell more than current holding")
@@ -58,11 +62,13 @@ class TransactionCollection(MethodView):
         `asset_master` に登録してから取引を作成する。
         作成した取引の成功確認として、約定日時・銘柄・最終約定金額を返す。
         """
+        require_auth()
         abort(501, message=NOT_IMPLEMENTED)
 
 
 @blp.route("/transactions/batch")
 class TransactionBatch(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
     @blp.arguments(TransactionBatchCreateSchema)
     @blp.response(201, TransactionSchema(many=True))
     @blp.alt_response(400, description="One or more transactions are invalid")
@@ -73,4 +79,5 @@ class TransactionBatch(MethodView):
         各 item は単件作成と同じ形で、成功時は各取引に対応する約定サマリーを返す。
         全件を検証してから作成するため、1 件でも不正なら何も作成しない。
         """
+        require_auth()
         abort(501, message=NOT_IMPLEMENTED)
