@@ -8,6 +8,15 @@ flask-smorest で OpenAPI / Swagger UI とリクエスト・レスポンスス�
 Supabase 接続設定、Supabase client helper、database connection tests、
 RLS tests は実装済み。
 
+### User Story
+
+1. As an investor, I want to register my assets so that I can manage my holdings in one place.
+2. As an investor, I want to view the current value of my portfolio so that I can understand my overall finalcial position.
+3. As an investor, I want to track my profits and losses so that I can make informed investment decisions.
+4. As an investor, I want to record my transaction history so that I can review my investment performance over time.
+5. As an investor, I want to visualize my asset allocation so that I can better control and manage risk.
+6. As an investor, I want to monitor my investment performance over time so that I can track the growth of my portfolio.
+
 ### セットアップ
 
 ```bash
