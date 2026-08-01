@@ -19,7 +19,7 @@ from app.schemas.portfolio import (
     PortfolioCreateSchema,
     PortfolioSummarySchema,
 )
-from app.services.portfolio import create_portfolio
+from app.services.portfolio import create_portfolio, get_portfolio_summary
 
 blp = Blueprint(
     "portfolio",
@@ -62,7 +62,7 @@ class PortfolioSummary(MethodView):
         `holdings` には保存しない。
         """
         require_auth()
-        abort(501, message=NOT_IMPLEMENTED)
+        return get_portfolio_summary()
 
 
 @blp.route("/holdings")

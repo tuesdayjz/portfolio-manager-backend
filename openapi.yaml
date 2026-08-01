@@ -463,7 +463,10 @@ components:
           minimum: 0.0
           type: number
         currency:
-          example: JPY
+          example: USD
+          type: string
+        currency_symbol:
+          example: $
           type: string
         total_market_value:
           example: 4220000
@@ -476,6 +479,7 @@ components:
       required:
       - cash_balance
       - currency
+      - currency_symbol
       - total_market_value
       - total_return_percent
       type: object

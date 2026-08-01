@@ -12,9 +12,13 @@ from werkzeug.exceptions import HTTPException
 
 from app.extensions import db
 from app.models import AssetMaster, AssetType, Currency, Holdings, Portfolio, Users
+from app.services.market_data import YahooFinanceMarketData
 
 PORTFOLIO_CREATED_MESSAGE = "Portfolio created"
 PORTFOLIO_ALREADY_EXISTS_MESSAGE = "Portfolio already exists for this user."
+PORTFOLIO_NOT_FOUND_MESSAGE = "The specified portfolio does not exist"
+SUMMARY_CURRENCY = "USD"
+DEFAULT_USD_SYMBOL = "$"
 
 
 def create_portfolio(payload):
@@ -72,6 +76,59 @@ def create_portfolio(payload):
     return {"message": PORTFOLIO_CREATED_MESSAGE}
 
 
+def get_portfolio_summary(market_data=None):
+    """Return USD summary values for the current user's portfolio."""
+
+    user_id = _current_user_id()
+    portfolio = db.session.execute(
+        select(Portfolio).where(Portfolio.user_id == user_id)
+    ).scalar_one_or_none()
+    if not portfolio:
+        abort(404, message=PORTFOLIO_NOT_FOUND_MESSAGE)
+
+    market_data = market_data or YahooFinanceMarketData()
+    cash_balance = decimal.Decimal("0")
+    total_market_value = decimal.Decimal("0")
+    total_cost_basis = decimal.Decimal("0")
+
+    holdings = db.session.execute(
+        select(Holdings).where(Holdings.portfolio_id == portfolio.id)
+    ).scalars()
+
+    for holding in holdings:
+        quantity = _decimal_or_zero(holding.quantity)
+        average_cost = _decimal_or_zero(holding.average_cost)
+        asset = holding.asset
+        asset_type = getattr(getattr(asset, "asset_type", None), "asset_type", None)
+        currency = _asset_currency(asset)
+        fx_rate = _decimal_or_none(market_data.fx_to_usd(currency))
+        if fx_rate is None:
+            continue
+
+        if asset_type == "cash":
+            cash_balance += quantity * average_cost * fx_rate
+            continue
+
+        current_price = _decimal_or_none(
+            market_data.latest_price(getattr(asset, "ticker", None))
+        )
+        if current_price is None:
+            continue
+
+        total_market_value += quantity * current_price * fx_rate
+        total_cost_basis += quantity * average_cost * fx_rate
+
+    return {
+        "currency": SUMMARY_CURRENCY,
+        "currency_symbol": _summary_currency_symbol(),
+        "cash_balance": float(cash_balance),
+        "total_market_value": float(total_market_value),
+        "total_return_percent": float(
+            _return_percent(total_market_value, total_cost_basis)
+        ),
+    }
+
+
 def _current_user_id():
     try:
         return uuid.UUID(str(g.current_user_id))
@@ -125,3 +182,40 @@ def _cash_asset(currency_code):
     db.session.add(asset)
     db.session.flush()
     return asset
+
+
+def _decimal_or_zero(value):
+    if value is None:
+        return decimal.Decimal("0")
+    return decimal.Decimal(str(value))
+
+
+def _decimal_or_none(value):
+    if value is None:
+        return None
+    try:
+        result = decimal.Decimal(str(value))
+    except (decimal.InvalidOperation, TypeError, ValueError):
+        return None
+    if result.is_nan() or result <= 0:
+        return None
+    return result
+
+
+def _asset_currency(asset):
+    return (
+        getattr(getattr(asset, "currency", None), "currency", None) or SUMMARY_CURRENCY
+    ).upper()
+
+
+def _summary_currency_symbol():
+    currency = db.session.execute(
+        select(Currency).where(Currency.currency == SUMMARY_CURRENCY)
+    ).scalar_one_or_none()
+    return getattr(currency, "symbol", None) or DEFAULT_USD_SYMBOL
+
+
+def _return_percent(total_market_value, total_cost_basis):
+    if total_cost_basis == 0:
+        return decimal.Decimal("0")
+    return (total_market_value - total_cost_basis) / total_cost_basis * 100

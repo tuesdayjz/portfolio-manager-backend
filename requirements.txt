@@ -7,3 +7,4 @@ marshmallow>=3.19,<4.0
 python-dotenv>=1.0
 PyYAML>=6.0
 supabase>=2.6,<3.0
+yfinance>=1.5,<2.0
