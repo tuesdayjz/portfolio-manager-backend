@@ -5,7 +5,6 @@ from marshmallow import Schema, ValidationError, fields, validate, validates_sch
 from app.enums import AllocationGroupBy, Interval, PerformanceRange
 from app.schemas.common import (
     NON_NEGATIVE,
-    POSITIVE_ID,
     WEIGHT,
     DateRangeQueryMixin,
 )
@@ -19,19 +18,22 @@ class PortfolioCreateSchema(Schema):
     """ポートフォリオの新規作成。所有者はログイン情報から解決する。"""
 
     name = fields.Str(required=True, metadata={"example": "Main Portfolio"})
-    currency = fields.Str(required=True, metadata={"example": "JPY"})
+    # Frontend defaults this to USD, but the API accepts it for future flexibility.
+    currency = fields.Str(load_default="USD", metadata={"example": "USD"})
     cash_balance = fields.Float(
         load_default=0, validate=NON_NEGATIVE,
         metadata={"description": _CASH_BALANCE_NOTE, "example": 1000000},
     )
 
 
-class PortfolioSchema(PortfolioCreateSchema):
-    """ポートフォリオ（レスポンス）。"""
+class PortfolioCreateResultSchema(Schema):
+    """ポートフォリオ作成の軽量レスポンス。"""
 
-    portfolio_id = fields.Int(
-        required=True, validate=POSITIVE_ID, metadata={"example": 1}
-    )
+    message = fields.Str(required=True, metadata={"example": "Portfolio created"})
+
+
+class PortfolioSchema(PortfolioCreateSchema):
+    """ポートフォリオ（詳細レスポンス用）。"""
 
 
 class PortfolioSummarySchema(Schema):
@@ -41,7 +43,6 @@ class PortfolioSummarySchema(Schema):
     ヘッダー表示に必要な最小限の項目だけを返す。
     """
 
-    portfolio_id = fields.Int(required=True, metadata={"example": 1})
     currency = fields.Str(required=True, metadata={"example": "JPY"})
     cash_balance = fields.Float(
         required=True, validate=NON_NEGATIVE,
@@ -62,7 +63,8 @@ class PortfolioSummarySchema(Schema):
 class AllocationItemSchema(Schema):
     """配分の 1 項目。`weight` は 0〜1 の割合。"""
 
-    name = fields.Str(
+    # `category` is the display bucket for the selected `group_by` value.
+    category = fields.Str(
         required=True,
         metadata={
             "description": "集計基準ごとの区分名（資産クラス名・通貨コード・"
@@ -88,9 +90,6 @@ class PortfolioAllocationSchema(Schema):
     `group_by` を変えて複数回呼ぶ。
     """
 
-    portfolio_id = fields.Int(
-        required=True, validate=POSITIVE_ID, metadata={"example": 1}
-    )
     group_by = fields.Enum(
         AllocationGroupBy, by_value=True, required=True,
         metadata={"description": "集計基準", "example": "asset_type"},
@@ -186,7 +185,9 @@ class PerformanceMetricsSchema(Schema):
     today = fields.Nested(
         PerformanceChangeSchema,
         required=True,
-        metadata={"description": "前日終値からの騰落"},
+        metadata={
+            "description": "今日の close price と前日の close price の差分で計算する騰落"
+        },
     )
     period_return = fields.Nested(
         PerformanceChangeSchema,
@@ -194,7 +195,8 @@ class PerformanceMetricsSchema(Schema):
         data_key="return",
         metadata={
             "description": "`range`（または start_date / end_date）で指定した"
-            "対象期間の損益"
+            "対象期間の損益。今日の close price と対象期間の起点 close price の"
+            "差分で計算する。"
         },
     )
     total_return = fields.Nested(
@@ -207,9 +209,6 @@ class PerformanceMetricsSchema(Schema):
 class PerformanceGraphSchema(Schema):
     """ポートフォリオ推移グラフ。"""
 
-    portfolio_id = fields.Int(
-        required=True, validate=POSITIVE_ID, metadata={"example": 1}
-    )
     currency = fields.Str(required=True, metadata={"example": "JPY"})
     interval = fields.Enum(
         Interval, by_value=True, required=True, metadata={"example": "1d"}
@@ -225,6 +224,42 @@ class PerformanceGraphSchema(Schema):
     start_date = fields.Date(required=True, metadata={"example": "2026-01-01"})
     end_date = fields.Date(required=True, metadata={"example": "2026-07-28"})
     metrics = fields.Nested(PerformanceMetricsSchema, required=True)
+    # These returns compare today's close price with each range's start close price.
+    return_1d = fields.Nested(
+        PerformanceChangeSchema,
+        required=True,
+        metadata={"description": "今日の close price と前日の close price の差分"},
+    )
+    return_1w = fields.Nested(
+        PerformanceChangeSchema,
+        required=True,
+        metadata={"description": "今日の close price と 1 週間前の close price の差分"},
+    )
+    return_1m = fields.Nested(
+        PerformanceChangeSchema,
+        required=True,
+        metadata={"description": "今日の close price と 1 か月前の close price の差分"},
+    )
+    return_3m = fields.Nested(
+        PerformanceChangeSchema,
+        required=True,
+        metadata={"description": "今日の close price と 3 か月前の close price の差分"},
+    )
+    return_YTD = fields.Nested(
+        PerformanceChangeSchema,
+        required=True,
+        metadata={"description": "今日の close price と年初の close price の差分"},
+    )
+    return_1y = fields.Nested(
+        PerformanceChangeSchema,
+        required=True,
+        metadata={"description": "今日の close price と 1 年前の close price の差分"},
+    )
+    return_total = fields.Nested(
+        PerformanceChangeSchema,
+        required=True,
+        metadata={"description": "今日の close price と運用開始時点の close price の差分"},
+    )
     points = fields.List(fields.Nested(PerformanceGraphPointSchema), required=True)
 
 
@@ -247,8 +282,8 @@ class PerformanceQuerySchema(DateRangeQueryMixin, Schema):
     start_date = fields.Date(metadata={"example": "2026-07-26"})
     end_date = fields.Date(metadata={"example": "2026-07-28"})
     range = fields.Enum(
-        PerformanceRange, by_value=True, load_default=PerformanceRange.SIX_MONTHS,
-        metadata={"description": "期間セレクタ", "example": "1y"},
+        PerformanceRange, by_value=True, load_default=PerformanceRange.ALL,
+        metadata={"description": "期間セレクタ", "example": "all"},
     )
     interval = fields.Enum(
         Interval, by_value=True, load_default=Interval.DAILY,

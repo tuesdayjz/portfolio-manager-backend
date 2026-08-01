@@ -211,16 +211,34 @@ Swagger UI の Try it out で入力仕様の検証はできる（通れば 501�
 | GET | `/portfolios/holdings` | portfolio | 保有残高一覧 |
 | GET | `/portfolios/allocation` | portfolio | 資産配分（種別・通貨・銘柄別） |
 | GET | `/portfolios/performance` | portfolio | 推移グラフ |
-| GET | `/assets/{asset_id}/` | assets | 資産マスタ情報 |
-| GET | `/assets/{asset_id}/price-history` | assets | 過去の市場価格（OHLCV） |
+| GET | `/assets/{asset_id}/` | assets | 資産マスタ情報（deprecated） |
+| GET | `/assets/{asset_id}/price-history` | assets | 過去の市場価格（deprecated） |
 | GET | `/portfolios/transactions` | transactions | 取引履歴の検索 |
 | POST | `/transactions` | transactions | 取引の登録（単件） |
 | POST | `/transactions/batch` | transactions | 取引の一括登録 |
 
-`/transactions` の絞り込み: `asset_id`, `search`, `transaction_type`,
-`asset_type`, `start_date`, `end_date`, `page`, `per_page`。
-`start_date` / `end_date` はどちらも指定日を含む。
-`/performance` は `start_date`, `end_date`, `interval`（`1d` / `1wk` / `1mo`）を取る。
+`POST /portfolios/` は `name`、任意の `currency`（フロントエンド既定値は
+`USD`）、任意の `cash_balance` を受け取り、成功時は `message` だけを返す。
+
+`/holdings` の絞り込みは `asset_type`（既定値 `all`）のみ。`asset_id` と
+`search` は受け取らず、検索はフロントエンド側で行う。`/allocation` の
+`items` は分類名を `category` として返す。
+
+`/performance` は `start_date`, `end_date`, `range`, `interval` を取る。
+`range` は `1d` / `1w` / `1m` / `3m` / `YTD` / `1y` / `all`、
+`interval` の既定値は `1d`。レスポンスは `return_1d`, `return_1w`,
+`return_1m`, `return_3m`, `return_YTD`, `return_1y`, `return_total` を
+それぞれ `{ amount, percent }` で返す。`today` は今日の close price と
+前日の close price の差分で計算し、各期間の return は今日の close price と
+対象期間の起点 close price（例: `1w` なら 1 週間前）の差分で計算する。
+
+`/transactions` の絞り込みは `transaction_type`, `asset_type`（既定値
+`all`）, `start_date`, `end_date`。`asset_id` と `search` は受け取らない。
+単件作成と一括作成の各 item は `ticker`, `name`, `position`, `order_type`,
+`transaction_type`, `quantity` を受け取り、成功時は作成された取引の確認として
+`date`, `symbol`, `name`, `executed_price`, `executed_unit_price`,
+`asset_type` の約定サマリーを返す。新しい asset を追加する場合は、Yahoo
+Finance API から取得した情報を `asset_master` に登録してから取引を作成する。
 
 ### 設計メモ
 
@@ -228,6 +246,8 @@ Swagger UI の Try it out で入力仕様の検証はできる（通れば 501�
 - **所有者はログイン情報から解決する。** private API では client から
   `user_id` も `portfolio_id` も受け取らない。backend 内部では
   Supabase Auth user id と `portfolio.user_id` で対象データを解決する。
+- **`portfolio_id` はレスポンスで返さない。** private なポートフォリオデータは
+  ログイン情報から解決する想定で、クライアントには公開しない。
 - **React から直接読む private data は Supabase RLS で守る。** 重要な write は
   Flask 経由にする。
 - **`current_price` は保存しない。** 市場価格は Yahoo Finance または
