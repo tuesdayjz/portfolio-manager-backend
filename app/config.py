@@ -14,8 +14,21 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _env(name: str, default: str | None = None) -> str | None:
+    value = os.getenv(name)
+    return value.strip() if value and value.strip() else default
+
+
 class BaseConfig:
-    SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-me")
+    SECRET_KEY = _env("SECRET_KEY", "dev-secret-key-change-me")
+    SUPABASE_URL = _env(
+        "SUPABASE_URL",
+        "https://gvtxkyimbroikdfjsacb.supabase.co",
+    )
+    SUPABASE_ANON_KEY = _env("SUPABASE_ANON_KEY")
+    SUPABASE_SERVICE_ROLE_KEY = _env("SUPABASE_SERVICE_ROLE_KEY")
+    # portfolio 作成時の既定通貨。frontend default と合わせて USD にする。
+    DEFAULT_BASE_CURRENCY = _env("DEFAULT_BASE_CURRENCY", "USD")
 
     JSON_SORT_KEYS = False
     PROPAGATE_EXCEPTIONS = True
@@ -50,7 +63,7 @@ class BaseConfig:
             "description": (
                 "個人向けポートフォリオ管理 API。\n\n"
                 "- `portfolio` … ポートフォリオの作成、サマリー、保有残高、資産配分、推移\n"
-                "- `assets` … 資産マスタと Yahoo Finance の市場価格\n"
+                "- `assets` … 資産マスタと市場価格\n"
                 "- `transactions` … 売買の取引履歴\n\n"
                 "実際の証券発注は行わない。売買は取引履歴の記録と保有残高の更新だけを行う。\n\n"
                 "private なデータの対象ポートフォリオはログイン情報から解決する。"
@@ -63,6 +76,20 @@ class BaseConfig:
             # macOS の AirPlay レシーバーが 5000 を占有し 403 を返すため 5001 を使う。
             {"url": "http://localhost:5001", "description": "Local development"},
         ],
+        "components": {
+            "securitySchemes": {
+                # Swagger UI の Authorize button から React 側の Supabase access token を渡す。
+                "bearerAuth": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "bearerFormat": "Supabase access token",
+                    "description": (
+                        "React が Supabase Auth で取得した access_token を "
+                        "`Authorization: Bearer <token>` として送る。"
+                    ),
+                }
+            }
+        },
     }
 
 

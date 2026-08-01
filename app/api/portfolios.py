@@ -6,14 +6,15 @@
 from flask.views import MethodView
 from flask_smorest import Blueprint, abort
 
+from app.auth import require_auth
 from app.schemas.holding import HoldingsPageSchema, HoldingsQuerySchema
 from app.schemas.portfolio import (
     AllocationQuerySchema,
     PerformanceGraphSchema,
     PerformanceQuerySchema,
     PortfolioAllocationSchema,
+    PortfolioCreateResultSchema,
     PortfolioCreateSchema,
-    PortfolioSchema,
     PortfolioSummarySchema,
 )
 
@@ -30,15 +31,18 @@ PORTFOLIO_NOT_FOUND = "The specified portfolio does not exist"
 
 @blp.route("/")
 class PortfolioCollection(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
     @blp.arguments(PortfolioCreateSchema)
-    @blp.response(201, PortfolioSchema)
+    @blp.response(201, PortfolioCreateResultSchema)
     def post(self, payload):
         """ポートフォリオを作成する。"""
+        require_auth()
         abort(501, message=NOT_IMPLEMENTED)
 
 
 @blp.route("/summary")
 class PortfolioSummary(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
     @blp.response(200, PortfolioSummarySchema)
     @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
     def get(self):
@@ -48,11 +52,13 @@ class PortfolioSummary(MethodView):
         Yahoo Finance または `asset_data_history` から取得する想定で、
         `holdings` には保存しない。
         """
+        require_auth()
         abort(501, message=NOT_IMPLEMENTED)
 
 
 @blp.route("/holdings")
 class PortfolioHoldings(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
     @blp.arguments(HoldingsQuerySchema, location="query")
     @blp.response(200, HoldingsPageSchema)
     @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
@@ -63,11 +69,13 @@ class PortfolioHoldings(MethodView):
         全件を集計した合計行を `totals` に入れて返す。`current_price` は
         Yahoo Finance 由来の市場価格で、Supabase holdings には保存しない。
         """
+        require_auth()
         abort(501, message=NOT_IMPLEMENTED)
 
 
 @blp.route("/allocation")
 class PortfolioAllocation(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
     @blp.arguments(AllocationQuerySchema, location="query")
     @blp.response(200, PortfolioAllocationSchema)
     @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
@@ -77,11 +85,13 @@ class PortfolioAllocation(MethodView):
         `group_by` で指定した 1 つの基準（資産クラス・通貨・銘柄・セクター）で
         集計した内訳を返す。評価額計算の市場価格は Yahoo Finance から取得する想定。
         """
+        require_auth()
         abort(501, message=NOT_IMPLEMENTED)
 
 
 @blp.route("/performance")
 class PortfolioPerformance(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
     @blp.arguments(PerformanceQuerySchema, location="query")
     @blp.response(200, PerformanceGraphSchema)
     @blp.alt_response(400, description="start_date must be before or equal to end_date")
@@ -91,5 +101,9 @@ class PortfolioPerformance(MethodView):
 
         取引履歴から日付ごとの保有残高を復元し、`asset_data_history` または
         Yahoo Finance の価格データで評価額と含み損益を計算する想定。
+        `today` は今日の close price と前日の close price の差分で計算する。
+        各期間の return は、今日の close price と対象期間の起点 close price
+        （例: `1w` なら 1 週間前）との差分で計算する。
         """
+        require_auth()
         abort(501, message=NOT_IMPLEMENTED)

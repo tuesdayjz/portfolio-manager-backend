@@ -33,6 +33,7 @@ htmlcov/
 .env
 .env.*
 !.env.example
+!tests/.env.example
 
 # Logs and local databases
 *.log

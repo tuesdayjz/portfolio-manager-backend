@@ -4,11 +4,11 @@ import click
 from dotenv import load_dotenv
 from flask import Flask
 
+load_dotenv()
+
 from app.api import register_blueprints
 from app.config import get_config
 from app.extensions import api, db, migrate
-
-load_dotenv()
 
 
 def create_app(config_name: str | None = None) -> Flask:
