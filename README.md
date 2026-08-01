@@ -96,6 +96,22 @@ private API の実装では client から `user_id` を受け取らず、
 `g.current_user_id` を使って対象ユーザーを解決する。Swagger UI では右上の
 **Authorize** から Supabase access token を入力する。
 
+Swagger UI で private API を手動テストする場合は、ローカルの `.env` と
+`tests/.env` に Supabase 設定と `SUPABASE_TEST_USER_EMAIL` /
+`SUPABASE_TEST_USER_PASSWORD` を置いたうえで、以下を使う。
+
+```bash
+.venv/bin/python scripts/create_test_user.py
+.venv/bin/python scripts/generate_token.py
+```
+
+`scripts/create_test_user.py` は、`SUPABASE_TEST_USER_EMAIL` から
+`user001+20260802000000-abcdef@gmail.com` のような一意の email を生成して
+新しい test user を作る。固定 email を使いたい場合だけ `--email` を渡す。
+作成後に表示される `scripts/generate_token.py --email ...` の token 生成コマンドを
+実行し、出力を Swagger UI の **Authorize** に貼り付ける。HTTP header 形式で
+確認したい場合は `--header` を付ける。
+
 > Review note: この branch では authentication だけを準備し、authorization
 > check と業務 DB write は SQLAlchemy branch との merge 後に実装する。
 
