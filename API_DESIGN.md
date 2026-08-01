@@ -22,9 +22,9 @@ holdings の更新だけを行う。
 - private table の read 制御は Supabase RLS で行う。
 - React が Flask private API を呼ぶ場合は
   `Authorization: Bearer <access_token>` を header に付ける。
-- holdings / transactions など重要な write は Flask backend 経由にする。
-- Flask backend は `SUPABASE_SERVICE_ROLE_KEY` を使って write する。
-- `SUPABASE_SERVICE_ROLE_KEY` は frontend や GitHub に出さない。
+- この branch は Flask 側の Auth context を準備する。
+- holdings / transactions などの業務 DB read/write と row ownership check は、
+  後続の SQLAlchemy branch で `g.current_user_id` を使って実装する。
 
 ### Private Data Access
 
@@ -137,7 +137,7 @@ private table の RLS:
 | `transactions` | `transactions -> holdings -> portfolio.user_id = auth.uid()` |
 
 React user には通常の `INSERT` / `UPDATE` / `DELETE` policy を追加しない。
-重要な write は Flask backend の service role client から行う。
+重要な write は Flask backend 経由にするが、実装主線は後続の SQLAlchemy branch に寄せる。
 
 ### Shared Tables
 
@@ -149,7 +149,8 @@ React user には通常の `INSERT` / `UPDATE` / `DELETE` policy を追加しな
 | `asset_master` | ticker, name, asset type, currency |
 | `asset_data_history` | historical close price |
 
-logged-in user は shared tables を read できる。write は backend / service role に寄せる。
+logged-in user は shared tables を read できる。write 方針は SQLAlchemy branch
+で backend DB 実装と合わせて整理する。
 
 ### Table Notes
 
@@ -228,22 +229,25 @@ ownership は `transactions -> holdings -> portfolio -> users` で解決する�
 ## Supabase Client / Config
 
 Flask app では Supabase 設定を直接 `os.getenv` で読まない。`app.config` を経由し、
-`app.services.supabase` で client を作成する。
+`app.services.supabase` で Auth / test 用 client を作成する。
 
 ```python
-from app.services.supabase import get_supabase_service_client
+from app.services.supabase import get_supabase_anon_client
 
-client = get_supabase_service_client()
+client = get_supabase_anon_client()
 ```
+
+Review note: この branch では Supabase client を Auth context と接続検証に限定し、
+portfolio / holdings / transactions の業務 CRUD は SQLAlchemy branch に残す。
 
 主な helper:
 
 | Function | 用途 |
 | --- | --- |
-| `get_supabase_anon_client()` | Flask app に cached anon client を返す |
-| `get_supabase_service_client()` | Flask app に cached service role client を返す |
+| `get_supabase_anon_client()` | Auth token 検証用の cached anon client を返す |
+| `get_supabase_service_client()` | 接続確認・RLS 検証用の cached service role client を返す |
 | `create_supabase_anon_client()` | session を分けたい test 用の non-cached anon client |
-| `create_supabase_service_client()` | non-cached service role client |
+| `create_supabase_service_client()` | 接続確認・diagnostics 用の non-cached service role client |
 | `close_supabase_client(client)` | HTTP resources を解放する |
 | `close_supabase_clients(app=None)` | Flask app に cached された clients を解放する |
 

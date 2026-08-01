@@ -60,6 +60,7 @@ class BaseConfig:
         ],
         "components": {
             "securitySchemes": {
+                # Swagger UI の Authorize button から React 側の Supabase access token を渡す。
                 "bearerAuth": {
                     "type": "http",
                     "scheme": "bearer",

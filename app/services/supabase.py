@@ -1,4 +1,8 @@
-"""Supabase client helpers backed by Flask app configuration."""
+"""Supabase client helpers backed by Flask app configuration.
+
+この branch では Supabase client を Auth / connection test 用に限定する。
+portfolio / holdings / transactions の業務 CRUD は後続の SQLAlchemy 実装に寄せる。
+"""
 
 from flask import current_app
 from supabase import create_client
@@ -7,25 +11,25 @@ SUPABASE_CLIENTS_EXTENSION_KEY = "supabase_clients"
 
 
 def get_supabase_anon_client():
-    """Return a Supabase client configured with SUPABASE_ANON_KEY."""
+    """Return a Supabase client for Supabase Auth token validation."""
 
     return get_supabase_client("SUPABASE_ANON_KEY")
 
 
 def get_supabase_service_client():
-    """Return a Supabase client configured with SUPABASE_SERVICE_ROLE_KEY."""
+    """Return a service role client for legacy/helper tests, not business CRUD."""
 
     return get_supabase_client("SUPABASE_SERVICE_ROLE_KEY")
 
 
 def create_supabase_anon_client():
-    """Create a new non-cached Supabase client with SUPABASE_ANON_KEY."""
+    """Create a non-cached anon client for Auth/RLS test sessions."""
 
     return create_supabase_client("SUPABASE_ANON_KEY")
 
 
 def create_supabase_service_client():
-    """Create a new non-cached Supabase client with SUPABASE_SERVICE_ROLE_KEY."""
+    """Create a non-cached service role client for tests and diagnostics."""
 
     return create_supabase_client("SUPABASE_SERVICE_ROLE_KEY")
 

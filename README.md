@@ -37,21 +37,22 @@ DEFAULT_BASE_CURRENCY=JPY
 
 - `SUPABASE_ANON_KEY`: Supabase Dashboard の publishable / anon key。
 - `SUPABASE_SERVICE_ROLE_KEY`: Supabase Dashboard の secret / service role key。
-- `SUPABASE_SERVICE_ROLE_KEY` は backend 専用。frontend や Git には出さない。
+- `SUPABASE_SERVICE_ROLE_KEY` は接続確認・RLS 検証用の backend secret。frontend や Git には出さない。
 - `.env` は `.gitignore` 対象なので、ローカル環境だけに置く。
 
 Flask アプリ内では Supabase 設定を直接 `os.getenv` で読まず、`app.config`
 経由で client を作成する。
 
 ```python
-from app.services.supabase import get_supabase_service_client
+from app.services.supabase import get_supabase_anon_client
 
-client = get_supabase_service_client()
+client = get_supabase_anon_client()
 ```
 
-`get_supabase_service_client()` は `current_app.config["SUPABASE_URL"]` と
-`current_app.config["SUPABASE_SERVICE_ROLE_KEY"]` を使う。frontend/user session
-相当の client が必要な場合は `get_supabase_anon_client()` を使う。
+`get_supabase_anon_client()` は `current_app.config["SUPABASE_URL"]` と
+`current_app.config["SUPABASE_ANON_KEY"]` を使い、Supabase Auth の token
+検証に使う。`get_supabase_service_client()` は接続確認・RLS 検証用 helper として
+残すが、portfolio / holdings / transactions の業務 CRUD の主線にはしない。
 `get_*_client()` は Flask app に cache される。テストなどで複数ユーザーの
 session を分けたい場合は `create_supabase_anon_client()` のような non-cached
 client creator を使う。
@@ -62,9 +63,9 @@ client creator を使う。
 - React が private table を直接読む場合は Supabase access token と RLS で保護する。
 - React が Flask の private API を呼ぶ場合は
   `Authorization: Bearer <access_token>` を header に付ける。
-- holdings / transactions など重要な write は Flask backend から
-  `SUPABASE_SERVICE_ROLE_KEY` を使って実行する。
-- `SUPABASE_SERVICE_ROLE_KEY` は RLS を bypass できるため、backend local/server env のみに置く。
+- この branch は Flask 側で Auth context を作るところまでを担当する。
+- holdings / transactions などの業務 DB read/write と ownership check は、
+  後続の SQLAlchemy branch で `g.current_user_id` を使って実装する。
 
 Flask 側では `app.auth.require_auth()` が Supabase access token を検証し、
 成功すると以下を request context に保存する。
@@ -80,6 +81,9 @@ g.current_access_token
 private API の実装では client から `user_id` を受け取らず、
 `g.current_user_id` を使って対象ユーザーを解決する。Swagger UI では右上の
 **Authorize** から Supabase access token を入力する。
+
+> Review note: この branch では authentication だけを準備し、authorization
+> check と業務 DB write は SQLAlchemy branch との merge 後に実装する。
 
 ### Supabase RLS
 
@@ -102,8 +106,8 @@ asset_master
 asset_data_history
 ```
 
-logged-in user は shared table を read できる。write は backend/service role
-client に寄せる。
+logged-in user は shared table を read できる。write 方針は SQLAlchemy branch
+で backend DB 実装と合わせて整理する。
 
 ### テスト
 
@@ -268,8 +272,8 @@ Finance API から取得した情報を `asset_master` に登録してから取�
   Supabase Auth user id と `portfolio.user_id` で対象データを解決する。
 - **`portfolio_id` はレスポンスで返さない。** private なポートフォリオデータは
   ログイン情報から解決する想定で、クライアントには公開しない。
-- **React から直接読む private data は Supabase RLS で守る。** 重要な write は
-  Flask 経由にする。
+- **React から直接読む private data は Supabase RLS で守る。** 重要な write と
+  ownership check は後続の SQLAlchemy 実装に寄せる。
 - **`current_price` は保存しない。** 市場価格は Yahoo Finance または
   `asset_data_history` 由来で、Supabase `holdings` には書かない。
 - **`cash_balance` はモック専用。** 現行の Supabase スキーマに現金残高のカラムがない。

@@ -12,6 +12,8 @@ def require_auth():
     成功した場合は `g.current_user_id` / `g.current_user_email` に現在の
     Supabase Auth user を保存する。private API は client から `user_id` を
     受け取らず、この値を server-side caller context として使う。
+    ここでは authentication だけを行い、row ownership の authorization は
+    後続の SQLAlchemy 実装で `g.current_user_id` を使って判定する。
     """
 
     token = _bearer_token()
