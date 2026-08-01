@@ -63,7 +63,7 @@ class SupabaseConfigTest(unittest.TestCase):
         )
         self.assertIsNone(config.SUPABASE_ANON_KEY)
         self.assertIsNone(config.SUPABASE_SERVICE_ROLE_KEY)
-        self.assertEqual(config.DEFAULT_BASE_CURRENCY, "JPY")
+        self.assertEqual(config.DEFAULT_BASE_CURRENCY, "USD")
 
         importlib.reload(config_module)
 

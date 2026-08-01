@@ -63,7 +63,7 @@ private portfolio data では client から owner identifier を受け取らな�
 
 `GET /portfolios/holdings` の filter:
 
-- `asset_id`
+- `asset_type`: optional, default `all`
 - `page`
 - `per_page`
 
@@ -97,8 +97,6 @@ assets endpoint は public data を扱うため、`user_id` は不要。
 
 `GET /portfolios/transactions` の filter:
 
-- `asset_id`
-- `search`
 - `transaction_type`
 - `asset_type`
 - `start_date`
@@ -108,7 +106,7 @@ assets endpoint は public data を扱うため、`user_id` は不要。
 
 transaction write の将来挙動:
 
-- body の `asset_id` とログイン user の portfolio から holding を探す。
+- body の `ticker` + `name` とログイン user の portfolio から asset / holding を探す。
 - `buy` は transaction を追加し、holding quantity を増やし、average cost を再計算する。
 - `sell` は transaction を追加し、holding quantity を減らす。
 - holding quantity を超える `sell` は `400`。
@@ -145,8 +143,7 @@ React user には通常の `INSERT` / `UPDATE` / `DELETE` policy を追加しな
 | --- | --- |
 | `currency` | 通貨 code / symbol |
 | `asset_type` | stock, bond, etf などの asset type |
-| `transaction_type` | buy / sell |
-| `asset_master` | ticker, name, asset type, currency |
+| `asset_master` | ticker, name, asset_type_id, currency_id |
 | `asset_data_history` | historical close price |
 
 logged-in user は shared tables を read できる。write 方針は SQLAlchemy branch
@@ -171,7 +168,7 @@ Auth 側で管理する。
 
 | Column | Type | Notes |
 | --- | --- | --- |
-| `id` | uuid | API response では `portfolio_id` として返す |
+| `id` | uuid | internal id。private API response では返さない |
 | `user_id` | uuid | owner; `users.id` を参照 |
 | `name` | text | default portfolio name |
 | `created_at` | timestamptz | default `now()` |
@@ -186,6 +183,9 @@ Auth 側で管理する。
 | `name` | text | asset name |
 | `asset_type_id` | uuid | `asset_type.id` を参照 |
 | `currency_id` | uuid | `currency.id` を参照 |
+
+Review note: `asset_master.asset_type` の text column は削除済み。資産クラスは
+`asset_type_id -> asset_type.id` で参照する。
 
 #### `holdings`
 
@@ -207,7 +207,7 @@ Auth 側で管理する。
 | --- | --- | --- |
 | `id` | uuid | transaction id |
 | `holding_id` | uuid | `holdings.id` を参照 |
-| `transaction_type_id` | uuid | `transaction_type.id` を参照 |
+| `transaction_type` | text | `buy` / `sell` などの取引種別 |
 | `trade_date` | date | trade date |
 | `quantity` | numeric | transaction quantity |
 | `price` | numeric | transaction price |

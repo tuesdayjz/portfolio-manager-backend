@@ -32,12 +32,13 @@ export FLASK_APP=wsgi.py
 SUPABASE_URL=https://gvtxkyimbroikdfjsacb.supabase.co
 SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
-DEFAULT_BASE_CURRENCY=JPY
+DEFAULT_BASE_CURRENCY=USD
 ```
 
 - `SUPABASE_ANON_KEY`: Supabase Dashboard の publishable / anon key。
 - `SUPABASE_SERVICE_ROLE_KEY`: Supabase Dashboard の secret / service role key。
 - `SUPABASE_SERVICE_ROLE_KEY` は接続確認・RLS 検証用の backend secret。frontend や Git には出さない。
+- `DEFAULT_BASE_CURRENCY`: portfolio 作成時の既定通貨。frontend / backend ともに `USD` を既定値にする。
 - `.env` は `.gitignore` 対象なので、ローカル環境だけに置く。
 
 Flask アプリ内では Supabase 設定を直接 `os.getenv` で読まず、`app.config`
@@ -101,7 +102,6 @@ shared table:
 ```text
 currency
 asset_type
-transaction_type
 asset_master
 asset_data_history
 ```
@@ -243,6 +243,16 @@ Swagger UI の Try it out で入力仕様の検証はできる（通れば 501�
 
 `POST /portfolios/` は `name`、任意の `currency`（フロントエンド既定値は
 `USD`）、任意の `cash_balance` を受け取り、成功時は `message` だけを返す。
+`cash_balance` は portfolio 作成時に cash holding として登録し、quantity は
+`1` として扱う。
+
+```json
+{
+  "name": "Main Portfolio",
+  "currency": "USD",
+  "cash_balance": 1000000
+}
+```
 
 `/holdings` の絞り込みは `asset_type`（既定値 `all`）のみ。`asset_id` と
 `search` は受け取らず、検索はフロントエンド側で行う。`/allocation` の
@@ -276,7 +286,8 @@ Finance API から取得した情報を `asset_master` に登録してから取�
   ownership check は後続の SQLAlchemy 実装に寄せる。
 - **`current_price` は保存しない。** 市場価格は Yahoo Finance または
   `asset_data_history` 由来で、Supabase `holdings` には書かない。
-- **`cash_balance` はモック専用。** 現行の Supabase スキーマに現金残高のカラムがない。
+- **`cash_balance` は cash holding として扱う。** portfolio table には保存せず、
+  `asset_type=cash` の asset を使って holdings に quantity `1` で登録する。
 - **一括登録は全件検証してから更新する。** 1 件でも不正なら何も更新しない。
 
 Supabase のテーブル定義と将来の実装方針は

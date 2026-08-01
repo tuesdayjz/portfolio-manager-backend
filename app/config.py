@@ -20,7 +20,8 @@ class BaseConfig:
     )
     SUPABASE_ANON_KEY = _env("SUPABASE_ANON_KEY")
     SUPABASE_SERVICE_ROLE_KEY = _env("SUPABASE_SERVICE_ROLE_KEY")
-    DEFAULT_BASE_CURRENCY = _env("DEFAULT_BASE_CURRENCY", "JPY")
+    # portfolio 作成時の既定通貨。frontend default と合わせて USD にする。
+    DEFAULT_BASE_CURRENCY = _env("DEFAULT_BASE_CURRENCY", "USD")
 
     JSON_SORT_KEYS = False
     PROPAGATE_EXCEPTIONS = True
