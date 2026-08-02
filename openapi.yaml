@@ -809,7 +809,9 @@ paths:
     get:
       description: '`group_by` で指定した 1 つの基準（資産クラス・通貨・銘柄・セクター）で
 
-        集計した内訳を返す。評価額計算の市場価格は Yahoo Finance から取得する想定。'
+        集計した内訳を返す。評価額計算の市場価格は Yahoo Finance から取得する。
+
+        `group_by=sector` 以外は cash holding も 1 区分として含める。'
       parameters:
       - description: 集計基準
         in: query

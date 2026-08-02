@@ -21,6 +21,7 @@ from app.schemas.portfolio import (
 )
 from app.services.portfolio import (
     create_portfolio,
+    get_portfolio_allocation,
     get_portfolio_holdings,
     get_portfolio_summary,
 )
@@ -96,10 +97,11 @@ class PortfolioAllocation(MethodView):
         """資産配分を取得する。
 
         `group_by` で指定した 1 つの基準（資産クラス・通貨・銘柄・セクター）で
-        集計した内訳を返す。評価額計算の市場価格は Yahoo Finance から取得する想定。
+        集計した内訳を返す。評価額計算の市場価格は Yahoo Finance から取得する。
+        `group_by=sector` 以外は cash holding も 1 区分として含める。
         """
         require_auth()
-        abort(501, message=NOT_IMPLEMENTED)
+        return get_portfolio_allocation(args)
 
 
 @blp.route("/performance")

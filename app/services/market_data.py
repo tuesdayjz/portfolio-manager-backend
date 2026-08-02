@@ -4,11 +4,12 @@ from decimal import Decimal, InvalidOperation
 
 
 class YahooFinanceMarketData:
-    """Fetch latest prices and FX rates from Yahoo Finance with per-request cache."""
+    """Fetch latest prices, FX rates and sectors from Yahoo Finance with per-request cache."""
 
     def __init__(self):
         self._prices = {}
         self._fx_rates = {}
+        self._sectors = {}
 
     def latest_price(self, ticker):
         ticker = (ticker or "").strip()
@@ -26,6 +27,14 @@ class YahooFinanceMarketData:
             self._fx_rates[currency] = self.latest_price(f"{currency}USD=X")
         return self._fx_rates[currency]
 
+    def sector(self, ticker):
+        ticker = (ticker or "").strip()
+        if not ticker:
+            return None
+        if ticker not in self._sectors:
+            self._sectors[ticker] = self._fetch_sector(ticker)
+        return self._sectors[ticker]
+
     def _fetch_latest_price(self, ticker):
         try:
             import yfinance as yf
@@ -42,6 +51,17 @@ class YahooFinanceMarketData:
         if closes.empty:
             return None
         return _decimal_or_none(closes.iloc[-1])
+
+    def _fetch_sector(self, ticker):
+        try:
+            import yfinance as yf
+
+            info = yf.Ticker(ticker).info or {}
+        except Exception:
+            return None
+
+        sector = info.get("sector")
+        return sector.strip() if isinstance(sector, str) and sector.strip() else None
 
 
 def _decimal_or_none(value):

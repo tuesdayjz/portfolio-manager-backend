@@ -329,7 +329,13 @@ Try it out で入力仕様の検証はできる（未実装なら 501、通ら�
 必要な market data が足りない holding は一覧と totals から除外する。`totals` は
 ページング後の `items` ではなく、条件に一致した全 holding で集計する。
 
-`/allocation` の `items` は分類名を `category` として返す。
+`GET /portfolios/allocation` は必須の `group_by`（`asset_type` / `currency` /
+`asset` / `sector`）で集計した配分を USD 建てで返す。`items` は分類名を
+`category`、USD 評価額を `value`、0〜1 の構成比を `weight`、区分に含まれる
+holding 件数を `holdings_count` として `value` の降順で返す。cash holding も
+1 区分として含めるが、`group_by=sector` だけは株式（`asset_type=stock`）に
+限定し、Yahoo Finance の sector が取れない銘柄は集計から除く。市場価格と FX が
+取れない holding も除外する。`as_of` は価格を取得した時刻。
 
 `/performance` は `start_date`, `end_date`, `range`, `interval` を取る。
 `range` は `1d` / `1w` / `1m` / `3m` / `YTD` / `1y` / `all`、
@@ -389,8 +395,8 @@ app/
 ├── auth.py        Supabase access token を検証し g.current_user_id を設定する
 ├── enums.py       TransactionType / Interval
 ├── services/
-│   ├── market_data.py Yahoo Finance から価格・FX を取得する
-│   ├── portfolio.py   portfolio / summary / holdings の business logic
+│   ├── market_data.py Yahoo Finance から価格・FX・sector を取得する
+│   ├── portfolio.py   portfolio / summary / holdings / allocation の business logic
 │   └── supabase.py    Flask app.config から Supabase client を作成する
 └── config.py      設定（OpenAPI / Supabase 設定を含む）
 
@@ -398,6 +404,7 @@ tests/
 ├── config.py
 ├── test_auth.py
 ├── test_config.py
+├── test_portfolio_allocation.py
 ├── test_portfolio_create.py
 ├── test_portfolio_holdings.py
 ├── test_portfolio_summary.py
@@ -414,6 +421,7 @@ scripts/
 
 ### 未実装
 
-portfolio allocation / performance、assets、transactions の実 API 処理。
-summary / holdings の read API、Supabase Auth token 検証、Yahoo Finance 価格・FX 取得、
+portfolio performance、assets、transactions の実 API 処理。
+summary / holdings / allocation の read API、Supabase Auth token 検証、
+Yahoo Finance 価格・FX・sector 取得、
 SQLAlchemy 接続、DB migration 管理は実装済み。

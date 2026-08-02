@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from werkzeug.exceptions import HTTPException
 
+from app.enums import AllocationGroupBy
 from app.extensions import db
 from app.models import (
     AssetDataHistory,
@@ -28,6 +29,7 @@ PORTFOLIO_ALREADY_EXISTS_MESSAGE = "Portfolio already exists for this user."
 PORTFOLIO_NOT_FOUND_MESSAGE = "The specified portfolio does not exist"
 SUMMARY_CURRENCY = "USD"
 DEFAULT_USD_SYMBOL = "$"
+UNKNOWN_CATEGORY = "unknown"
 
 
 def create_portfolio(payload):
@@ -242,6 +244,105 @@ def get_portfolio_holdings(args, market_data=None):
     }
 
 
+def get_portfolio_allocation(args, market_data=None):
+    """Return USD allocation buckets grouped by the requested criterion."""
+
+    user_id = _current_user_id()
+    portfolio = db.session.execute(
+        select(Portfolio).where(Portfolio.user_id == user_id)
+    ).scalar_one_or_none()
+    if not portfolio:
+        abort(404, message=PORTFOLIO_NOT_FOUND_MESSAGE)
+
+    market_data = market_data or YahooFinanceMarketData()
+    group_by = args["group_by"]
+    buckets = {}
+    total_value = decimal.Decimal("0")
+
+    holdings = db.session.execute(
+        select(Holdings)
+        .join(Holdings.asset)
+        .where(Holdings.portfolio_id == portfolio.id)
+        .order_by(AssetMaster.ticker)
+    ).scalars()
+
+    for holding in holdings:
+        asset = holding.asset
+        asset_type = getattr(getattr(asset, "asset_type", None), "asset_type", None)
+        asset_type_value = (asset_type or "").lower()
+        # sector を持つのは株式だけなので、それ以外は集計から除く。
+        if group_by is AllocationGroupBy.SECTOR and asset_type_value != "stock":
+            continue
+        currency = _asset_currency(asset)
+        fx_rate = _decimal_or_none(market_data.fx_to_usd(currency))
+        if fx_rate is None:
+            continue
+
+        quantity = _decimal_or_zero(holding.quantity)
+        if asset_type_value == "cash":
+            # cash holding は quantity=1、average_cost に残高が入っている。
+            value = quantity * _decimal_or_zero(holding.average_cost) * fx_rate
+        else:
+            current_price = _decimal_or_none(
+                market_data.latest_price(getattr(asset, "ticker", None))
+            )
+            if current_price is None:
+                continue
+            value = quantity * current_price * fx_rate
+
+        category = _allocation_category(
+            group_by, asset, asset_type, currency, market_data
+        )
+        if category is None:
+            continue
+
+        bucket = buckets.setdefault(
+            category, {"value": decimal.Decimal("0"), "holdings_count": 0}
+        )
+        bucket["value"] += value
+        bucket["holdings_count"] += 1
+        total_value += value
+
+    items = [
+        {
+            "category": category,
+            "value": float(bucket["value"]),
+            "weight": float(_ratio_of(bucket["value"], total_value)),
+            "holdings_count": bucket["holdings_count"],
+        }
+        # value の降順。同額のときは category 名で安定させる。
+        for category, bucket in sorted(
+            buckets.items(), key=lambda item: (-item[1]["value"], item[0])
+        )
+    ]
+
+    return {
+        "group_by": group_by,
+        "currency": SUMMARY_CURRENCY,
+        "total_value": float(total_value),
+        "items": items,
+        "as_of": datetime.datetime.now(datetime.timezone.utc),
+    }
+
+
+def _allocation_category(group_by, asset, asset_type, currency, market_data):
+    """Return the display bucket for a holding, or None to exclude it."""
+
+    if group_by is AllocationGroupBy.ASSET_TYPE:
+        return asset_type or UNKNOWN_CATEGORY
+    if group_by is AllocationGroupBy.CURRENCY:
+        return currency
+    if group_by is AllocationGroupBy.ASSET:
+        return (
+            getattr(asset, "name", None)
+            or getattr(asset, "ticker", None)
+            or UNKNOWN_CATEGORY
+        )
+    # sector は Yahoo Finance 由来。取れない銘柄は集計から除く。
+    sector = market_data.sector(getattr(asset, "ticker", None))
+    return sector or None
+
+
 def _current_user_id():
     try:
         return uuid.UUID(str(g.current_user_id))
@@ -344,6 +445,12 @@ def _return_percent(total_market_value, total_cost_basis):
     if total_cost_basis == 0:
         return decimal.Decimal("0")
     return (total_market_value - total_cost_basis) / total_cost_basis * 100
+
+
+def _ratio_of(amount, base):
+    if base == 0:
+        return decimal.Decimal("0")
+    return amount / base
 
 
 def _percent_of(amount, base):
