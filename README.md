@@ -380,6 +380,12 @@ app/
 │   └── common.py      共通バリデーターと pagination / date range
 ├── api/           エンドポイント定義（パス・入出力・service 呼び出し）
 │   └── parameters.py  パスパラメータの OpenAPI 定義
+├── models/        SQLAlchemy モデル（Supabase public schema）
+│   ├── user.py        public.users
+│   ├── portfolio.py   portfolio
+│   ├── holding.py     holdings
+│   ├── asset.py       currency / asset_type / asset_master / asset_data_history
+│   └── transaction.py transactions
 ├── auth.py        Supabase access token を検証し g.current_user_id を設定する
 ├── enums.py       TransactionType / Interval
 ├── services/
@@ -397,11 +403,17 @@ tests/
 ├── test_portfolio_summary.py
 └── database_connection/
     ├── helpers.py
+    ├── test_sqlalchemy_connection.py
     ├── test_supabase_connection.py
     └── test_supabase_user_rls.py
+
+scripts/
+├── create_test_user.py  Supabase Auth test user と public.users row を準備する
+└── generate_token.py    Swagger UI 手動テスト用の access token を生成する
 ```
 
 ### 未実装
 
-portfolio / assets / transactions の実 API 処理、Flask 側の token 検証 middleware、
-評価額・配分・推移の算出ロジック、Yahoo Finance 連携、DB migration 管理。
+portfolio allocation / performance、assets、transactions の実 API 処理。
+summary / holdings の read API、Supabase Auth token 検証、Yahoo Finance 価格・FX 取得、
+SQLAlchemy 接続、DB migration 管理は実装済み。
