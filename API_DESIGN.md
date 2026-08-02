@@ -6,8 +6,8 @@ Portfolio Manager backend は、個人向けポートフォリオ管理 API の 
 アプリケーションである。現時点では OpenAPI / Swagger UI と
 Marshmallow schema による request / response validation を中心に実装している。
 
-portfolio / assets / transactions の業務処理はまだ未実装で、該当 API は
-`501 Not Implemented` を返す。Supabase 接続設定、Supabase client helper、
+`POST /api/v1/portfolios/` は実装済みで、それ以外の portfolio / assets /
+transactions の業務処理はまだ未実装。Supabase 接続設定、Supabase client helper、
 database connection tests、RLS tests は実装済み。
 
 この API は実際の証券発注を行わない。buy / sell は将来的に取引履歴の記録と
@@ -55,17 +55,75 @@ private portfolio data では client から owner identifier を受け取らな�
 
 | Method | Path | 状態 | 内容 |
 | --- | --- | --- | --- |
-| `POST` | `/api/v1/portfolios/` | 501 | portfolio を作成する |
-| `GET` | `/api/v1/portfolios/summary` | 501 | cash balance、market value、return rate を返す |
-| `GET` | `/api/v1/portfolios/holdings` | 501 | holdings list、totals、pagination を返す |
+| `POST` | `/api/v1/portfolios/` | 201 | portfolio を作成する |
+| `GET` | `/api/v1/portfolios/summary` | 200 | USD の cash balance、market value、return rate を返す |
+| `GET` | `/api/v1/portfolios/holdings` | 200 | USD の holdings list、totals、pagination を返す |
 | `GET` | `/api/v1/portfolios/allocation` | 501 | `asset_type` / `currency` / `asset` / `sector` で配分を返す |
 | `GET` | `/api/v1/portfolios/performance` | 501 | graph-ready performance points を返す |
+
+`GET /portfolios/summary`:
+
+- response currency は `USD` 固定。`currency_symbol` は USD の symbol、未設定なら `$`。
+- `cash_balance` は cash holding の `average_cost * quantity` を USD 換算して合計する。
+- `total_market_value` は cash 以外の holding だけを対象に、Yahoo Finance の現在価格、
+  quantity、FX で USD 評価額を計算する。
+- `total_return_percent` は cash 以外の holding の市場評価額と
+  `average_cost * quantity` の USD 換算取得価額から計算する。
+- Yahoo price / FX が取れない holding は集計から除外する。
 
 `GET /portfolios/holdings` の filter:
 
 - `asset_type`: optional, default `all`
 - `page`
 - `per_page`
+
+`GET /portfolios/holdings` の response:
+
+```json
+{
+  "items": [
+    {
+      "ticker": "7203.T",
+      "name": "Toyota Motor Corp.",
+      "asset_type": "stock",
+      "quantity": 8.5,
+      "average_purchase_price": 1095.8,
+      "total_purchase_price": 9314.3,
+      "current_price": 2980.5,
+      "total_market_value": 25334.25,
+      "today_return_percent": 1.8,
+      "total_return_percent": 12.4,
+      "currency": "USD"
+    }
+  ],
+  "totals": {
+    "market_value": 4220000,
+    "day_change": 42150,
+    "day_change_percent": 1.01,
+    "currency": "USD"
+  },
+  "pagination": {
+    "page": 1,
+    "per_page": 5,
+    "total_items": 24,
+    "total_pages": 5
+  }
+}
+```
+
+holdings response の計算:
+
+- cash holding は `items` と investment totals に含めない。`asset_type=cash` filter では
+  空の list と zero totals を返す。
+- 現在価格と FX は Yahoo Finance から取得し、USD に換算して返す。
+- `average_purchase_price` は `average_cost * FX`。
+- `total_purchase_price` は `average_cost * quantity * FX`。
+- `total_market_value` は `quantity * current_price * FX`。
+- `today_return_percent` は USD 換算 current price と前日終値の比較。
+- 前日終値は `asset_data_history` の `price_date < today` の最新 `close_price`。
+- `total_return_percent` は USD 換算 current price と USD 換算 average cost の比較。
+- current price / FX / previous close が取れない holding は response から除外する。
+- totals は pagination 後の items ではなく、filter に一致した全 valid holdings で集計する。
 
 `GET /portfolios/allocation` の filter:
 
@@ -237,8 +295,9 @@ from app.services.supabase import get_supabase_anon_client
 client = get_supabase_anon_client()
 ```
 
-Review note: この branch では Supabase client を Auth context と接続検証に限定し、
-portfolio / holdings / transactions の業務 CRUD は SQLAlchemy branch に残す。
+Review note: Supabase client は Auth context と接続検証に限定する。
+portfolio summary / holdings read は SQLAlchemy で実装済み。transactions write など
+残りの業務 CRUD は後続実装に残す。
 
 主な helper:
 
@@ -300,6 +359,17 @@ private API 実装では `user_id` を request body / query から受け取ら�
 - Bearer token から Supabase Auth user を取得し、`g.current_user_id` を設定する。
 - token がない場合は `401`。
 - token が不正または期限切れの場合は `401`。
+
+```bash
+.venv/bin/python -m unittest tests.test_portfolio_create tests.test_portfolio_summary tests.test_portfolio_holdings
+```
+
+portfolio API tests は以下を確認する。
+
+- portfolio 作成、cash holding 登録、重複作成の `409`。
+- summary の cash / market value / return の USD 集計。
+- holdings list の Yahoo price / FX 換算、前日終値比較、asset_type filter、
+  pagination、cash 除外、missing market data skip。
 
 ### Database Connection Tests
 

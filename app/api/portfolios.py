@@ -1,6 +1,7 @@
 """ポートフォリオエンドポイントの API 定義。
 
-パスと入出力スキーマの宣言のみ。処理は未実装。
+POST / は作成処理まで実装済み。その他のエンドポイントは現時点では
+仕様の宣言のみで、処理は未実装。
 """
 
 from flask.views import MethodView
@@ -13,9 +14,15 @@ from app.schemas.portfolio import (
     PerformanceGraphSchema,
     PerformanceQuerySchema,
     PortfolioAllocationSchema,
+    PortfolioCreateConflictSchema,
     PortfolioCreateResultSchema,
     PortfolioCreateSchema,
     PortfolioSummarySchema,
+)
+from app.services.portfolio import (
+    create_portfolio,
+    get_portfolio_holdings,
+    get_portfolio_summary,
 )
 
 blp = Blueprint(
@@ -34,10 +41,16 @@ class PortfolioCollection(MethodView):
     @blp.doc(security=[{"bearerAuth": []}])
     @blp.arguments(PortfolioCreateSchema)
     @blp.response(201, PortfolioCreateResultSchema)
+    @blp.alt_response(
+        409,
+        schema=PortfolioCreateConflictSchema,
+        description="Portfolio already exists for this user",
+        example={"message": "Portfolio already exists for this user."},
+    )
     def post(self, payload):
         """ポートフォリオを作成する。"""
         require_auth()
-        abort(501, message=NOT_IMPLEMENTED)
+        return create_portfolio(payload)
 
 
 @blp.route("/summary")
@@ -53,7 +66,7 @@ class PortfolioSummary(MethodView):
         `holdings` には保存しない。
         """
         require_auth()
-        abort(501, message=NOT_IMPLEMENTED)
+        return get_portfolio_summary()
 
 
 @blp.route("/holdings")
@@ -70,7 +83,7 @@ class PortfolioHoldings(MethodView):
         Yahoo Finance 由来の市場価格で、Supabase holdings には保存しない。
         """
         require_auth()
-        abort(501, message=NOT_IMPLEMENTED)
+        return get_portfolio_holdings(args)
 
 
 @blp.route("/allocation")

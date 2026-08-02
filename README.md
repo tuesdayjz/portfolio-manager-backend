@@ -2,8 +2,8 @@
 
 ポートフォリオ管理 API の backend リポジトリ。現時点では Flask +
 flask-smorest で OpenAPI / Swagger UI とリクエスト・レスポンススキーマを
-定義している。portfolio / assets / transactions の業務処理はまだ未実装で、
-該当エンドポイントは `501 Not Implemented` を返す。
+定義している。`POST /api/v1/portfolios/` は実装済みで、それ以外の
+portfolio / assets / transactions の業務処理はまだ未実装。
 
 Supabase 接続設定、Supabase client helper、database connection tests、
 RLS tests は実装済み。
@@ -42,12 +42,16 @@ SUPABASE_URL=https://gvtxkyimbroikdfjsacb.supabase.co
 SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
 DEFAULT_BASE_CURRENCY=USD
+DATABASE_URL=postgresql+psycopg://postgres.<project-ref>:<password>@aws-0-ap-northeast-1.pooler.supabase.com:6543/postgres?sslmode=require
+TEST_DATABASE_URL=sqlite+pysqlite:///:memory:
 ```
 
 - `SUPABASE_ANON_KEY`: Supabase Dashboard の publishable / anon key。
 - `SUPABASE_SERVICE_ROLE_KEY`: Supabase Dashboard の secret / service role key。
 - `SUPABASE_SERVICE_ROLE_KEY` は接続確認・RLS 検証用の backend secret。frontend や Git には出さない。
 - `DEFAULT_BASE_CURRENCY`: portfolio 作成時の既定通貨。frontend / backend ともに `USD` を既定値にする。
+- `DATABASE_URL`: backend から Supabase PostgreSQL へ接続するための SQLAlchemy URI。
+- `TEST_DATABASE_URL`: unit test 用 DB URI。未設定時は in-memory SQLite を使う。
 - `.env` は `.gitignore` 対象なので、ローカル環境だけに置く。
 
 Flask アプリ内では Supabase 設定を直接 `os.getenv` で読まず、`app.config`
@@ -92,6 +96,22 @@ private API の実装では client から `user_id` を受け取らず、
 `g.current_user_id` を使って対象ユーザーを解決する。Swagger UI では右上の
 **Authorize** から Supabase access token を入力する。
 
+Swagger UI で private API を手動テストする場合は、ローカルの `.env` と
+`tests/.env` に Supabase 設定と `SUPABASE_TEST_USER_EMAIL` /
+`SUPABASE_TEST_USER_PASSWORD` を置いたうえで、以下を使う。
+
+```bash
+.venv/bin/python scripts/create_test_user.py
+.venv/bin/python scripts/generate_token.py
+```
+
+`scripts/create_test_user.py` は、`SUPABASE_TEST_USER_EMAIL` から
+`user001+20260802000000-abcdef@gmail.com` のような一意の email を生成して
+新しい test user を作る。固定 email を使いたい場合だけ `--email` を渡す。
+作成後に表示される `scripts/generate_token.py --email ...` の token 生成コマンドを
+実行し、出力を Swagger UI の **Authorize** に貼り付ける。HTTP header 形式で
+確認したい場合は `--header` を付ける。
+
 > Review note: この branch では authentication だけを準備し、authorization
 > check と業務 DB write は SQLAlchemy branch との merge 後に実装する。
 
@@ -132,10 +152,23 @@ Auth helper と設定をテストする場合:
 .venv/bin/python -m unittest tests.test_auth tests.test_config
 ```
 
+portfolio 作成 API をテストする場合:
+
+```bash
+.venv/bin/python -m unittest tests.test_portfolio_create
+```
+
 Supabase への接続と、全テーブルへの read 権限を確認する場合:
 
 ```bash
 .venv/bin/python -W ignore::DeprecationWarning -m unittest tests.database_connection.test_supabase_connection
+```
+
+backend の SQLAlchemy engine が `DATABASE_URL` で PostgreSQL に接続できることを
+確認する場合:
+
+```bash
+.venv/bin/python -m unittest tests.database_connection.test_sqlalchemy_connection
 ```
 
 この接続テストは `.env` と `tests/.env` の Supabase keys を使う。
@@ -249,8 +282,8 @@ import し忘れると差分が空のマイグレーションが生成される�
 **API 設計はスキーマが単一の情報源。** `app/schemas/` を直せば仕様書・
 バリデーション・Swagger UI がまとめて追従する。仕様書だけ手で書き換える運用はしない。
 
-処理は未実装だが**リクエストのバリデーションは動く**ので、
-Swagger UI の Try it out で入力仕様の検証はできる（通れば 501、通らなければ 422）。
+未実装 endpoint でも**リクエストのバリデーションは動く**ので、Swagger UI の
+Try it out で入力仕様の検証はできる（未実装なら 501、通らなければ 422）。
 
 ### エンドポイント
 
@@ -271,6 +304,7 @@ Swagger UI の Try it out で入力仕様の検証はできる（通れば 501�
 
 `POST /portfolios/` は `name`、任意の `currency`（フロントエンド既定値は
 `USD`）、任意の `cash_balance` を受け取り、成功時は `message` だけを返す。
+すでに portfolio があるユーザーの場合は `409 Conflict` を返す。
 `cash_balance` は portfolio 作成時に cash holding として登録し、quantity は
 `1` として扱う。
 
@@ -282,9 +316,20 @@ Swagger UI の Try it out で入力仕様の検証はできる（通れば 501�
 }
 ```
 
-`/holdings` の絞り込みは `asset_type`（既定値 `all`）のみ。`asset_id` と
-`search` は受け取らず、検索はフロントエンド側で行う。`/allocation` の
-`items` は分類名を `category` として返す。
+`GET /portfolios/summary` はログイン user の portfolio から USD 建ての
+サマリーを返す。`cash_balance` は cash holding を USD に換算して集計し、
+`total_market_value` と `total_return_percent` は cash 以外の holding だけで
+計算する。市場価格と FX は Yahoo Finance から取得し、DB には保存しない。
+
+`GET /portfolios/holdings` は cash を除いた保有残高一覧を USD 建てで返す。
+`asset_type`（既定値 `all`）、`page`、`per_page` を受け取る。`asset_id` と
+`search` は受け取らず、検索はフロントエンド側で行う。`items` は現在価格・取得単価・
+評価額・当日騰落率・累計損益率を返す。現在価格と FX は Yahoo Finance から取得し、
+前日終値は `asset_data_history` の `price_date < today` の最新 `close_price` を使う。
+必要な market data が足りない holding は一覧と totals から除外する。`totals` は
+ページング後の `items` ではなく、条件に一致した全 holding で集計する。
+
+`/allocation` の `items` は分類名を `category` として返す。
 
 `/performance` は `start_date`, `end_date`, `range`, `interval` を取る。
 `range` は `1d` / `1w` / `1m` / `3m` / `YTD` / `1y` / `all`、
@@ -316,6 +361,8 @@ Finance API から取得した情報を `asset_master` に登録してから取�
   `asset_data_history` 由来で、Supabase `holdings` には書かない。
 - **`cash_balance` は cash holding として扱う。** portfolio table には保存せず、
   `asset_type=cash` の asset を使って holdings に quantity `1` で登録する。
+- **`holdings` 一覧は investment holding だけを返す。** cash は summary の
+  `cash_balance` で扱い、holdings list には含めない。
 - **一括登録は全件検証してから更新する。** 1 件でも不正なら何も更新しない。
 
 Supabase のテーブル定義と将来の実装方針は
@@ -331,11 +378,19 @@ app/
 │   ├── holding.py     保有残高
 │   ├── transaction.py 取引履歴
 │   └── common.py      共通バリデーターと pagination / date range
-├── api/           エンドポイント定義（パスと入出力の宣言のみ。処理は未実装）
+├── api/           エンドポイント定義（パス・入出力・service 呼び出し）
 │   └── parameters.py  パスパラメータの OpenAPI 定義
+├── models/        SQLAlchemy モデル（Supabase public schema）
+│   ├── user.py        public.users
+│   ├── portfolio.py   portfolio
+│   ├── holding.py     holdings
+│   ├── asset.py       currency / asset_type / asset_master / asset_data_history
+│   └── transaction.py transactions
 ├── auth.py        Supabase access token を検証し g.current_user_id を設定する
 ├── enums.py       TransactionType / Interval
 ├── services/
+│   ├── market_data.py Yahoo Finance から価格・FX を取得する
+│   ├── portfolio.py   portfolio / summary / holdings の business logic
 │   └── supabase.py    Flask app.config から Supabase client を作成する
 └── config.py      設定（OpenAPI / Supabase 設定を含む）
 
@@ -343,13 +398,22 @@ tests/
 ├── config.py
 ├── test_auth.py
 ├── test_config.py
+├── test_portfolio_create.py
+├── test_portfolio_holdings.py
+├── test_portfolio_summary.py
 └── database_connection/
     ├── helpers.py
+    ├── test_sqlalchemy_connection.py
     ├── test_supabase_connection.py
     └── test_supabase_user_rls.py
+
+scripts/
+├── create_test_user.py  Supabase Auth test user と public.users row を準備する
+└── generate_token.py    Swagger UI 手動テスト用の access token を生成する
 ```
 
 ### 未実装
 
-portfolio / assets / transactions の実 API 処理、Flask 側の token 検証 middleware、
-評価額・配分・推移の算出ロジック、Yahoo Finance 連携、DB migration 管理。
+portfolio allocation / performance、assets、transactions の実 API 処理。
+summary / holdings の read API、Supabase Auth token 検証、Yahoo Finance 価格・FX 取得、
+SQLAlchemy 接続、DB migration 管理は実装済み。

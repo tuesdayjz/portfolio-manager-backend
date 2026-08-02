@@ -17,11 +17,7 @@ class HoldingSchema(Schema):
     市場価格から都度計算するため保存しない。
     """
 
-    asset_id = fields.Int(
-        required=True,
-        metadata={"description": "Asset ID", "example": 1},
-    )
-    symbol = fields.Str(
+    ticker = fields.Str(
         required=True,
         metadata={"description": "Yahoo Finance symbol", "example": "7203.T"},
     )
@@ -36,13 +32,6 @@ class HoldingSchema(Schema):
             "example": "stock",
         },
     )
-    sector = fields.Str(
-        validate=validate.Length(max=50),
-        metadata={
-            "description": "株式のセクター。株式以外の資産では null。",
-            "example": "Technology",
-        },
-    )
     quantity = fields.Float(
         required=True, validate=NON_NEGATIVE,
         metadata={"description": "Current holding quantity", "example": 8.5},
@@ -51,6 +40,10 @@ class HoldingSchema(Schema):
         required=True, validate=NON_NEGATIVE,
         metadata={"description": "平均取得単価", "example": 1095.80},
     )
+    total_purchase_price = fields.Float(
+        required=True, validate=NON_NEGATIVE,
+        metadata={"description": "合計取得価額", "example": 9314.30},
+    )
     current_price = fields.Float(
         required=True, validate=NON_NEGATIVE,
         metadata={
@@ -58,22 +51,29 @@ class HoldingSchema(Schema):
             "example": 2980.50,
         },
     )
-    market_value = fields.Float(
+    total_market_value = fields.Float(
         required=True, validate=NON_NEGATIVE,
         metadata={
             "description": "評価額（quantity × current_price）",
             "example": 25334.25,
         },
     )
-    day_change_percent = fields.Float(
+    today_return_percent = fields.Float(
         required=True,
         metadata={
             "description": "前日終値からの騰落率（％）。下落なら負。",
             "example": 1.8,
         },
     )
+    total_return_percent = fields.Float(
+        required=True,
+        metadata={
+            "description": "平均取得単価に対する損益率（％）。下落なら負。",
+            "example": 12.4,
+        },
+    )
     currency = fields.Str(
-        required=True, metadata={"description": "通貨", "example": "JPY"}
+        required=True, metadata={"description": "通貨", "example": "USD"}
     )
 
 
@@ -102,7 +102,7 @@ class HoldingsTotalSchema(Schema):
             "example": 1.01,
         },
     )
-    currency = fields.Str(required=True, metadata={"example": "JPY"})
+    currency = fields.Str(required=True, metadata={"example": "USD"})
 
 
 class HoldingsPageSchema(Schema):
