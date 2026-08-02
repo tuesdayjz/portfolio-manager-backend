@@ -92,10 +92,6 @@ components:
     Holding:
       additionalProperties: false
       properties:
-        asset_id:
-          description: Asset ID
-          example: 1
-          type: integer
         asset_type:
           description: 資産クラス。配分の `group_by=asset_type` と同じ区分。
           example: stock
@@ -108,20 +104,11 @@ components:
           type: number
         currency:
           description: 通貨
-          example: JPY
+          example: USD
           type: string
         current_price:
           description: Yahoo Finance 由来の市場価格。Supabase holdings には保存しない。
           example: 2980.5
-          minimum: 0.0
-          type: number
-        day_change_percent:
-          description: 前日終値からの騰落率（％）。下落なら負。
-          example: 1.8
-          type: number
-        market_value:
-          description: 評価額（quantity × current_price）
-          example: 25334.25
           minimum: 0.0
           type: number
         name:
@@ -133,26 +120,40 @@ components:
           example: 8.5
           minimum: 0.0
           type: number
-        sector:
-          description: 株式のセクター。株式以外の資産では null。
-          example: Technology
-          maxLength: 50
-          type: string
-        symbol:
+        ticker:
           description: Yahoo Finance symbol
           example: 7203.T
           type: string
+        today_return_percent:
+          description: 前日終値からの騰落率（％）。下落なら負。
+          example: 1.8
+          type: number
+        total_market_value:
+          description: 評価額（quantity × current_price）
+          example: 25334.25
+          minimum: 0.0
+          type: number
+        total_purchase_price:
+          description: 合計取得価額
+          example: 9314.3
+          minimum: 0.0
+          type: number
+        total_return_percent:
+          description: 平均取得単価に対する損益率（％）。下落なら負。
+          example: 12.4
+          type: number
       required:
-      - asset_id
       - asset_type
       - average_purchase_price
       - currency
       - current_price
-      - day_change_percent
-      - market_value
       - name
       - quantity
-      - symbol
+      - ticker
+      - today_return_percent
+      - total_market_value
+      - total_purchase_price
+      - total_return_percent
       type: object
     HoldingsPage:
       additionalProperties: false
@@ -174,7 +175,7 @@ components:
       additionalProperties: false
       properties:
         currency:
-          example: JPY
+          example: USD
           type: string
         day_change:
           description: 前日終値からの評価損益の変化額の合計。下落なら負。

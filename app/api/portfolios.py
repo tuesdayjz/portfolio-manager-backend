@@ -19,7 +19,11 @@ from app.schemas.portfolio import (
     PortfolioCreateSchema,
     PortfolioSummarySchema,
 )
-from app.services.portfolio import create_portfolio, get_portfolio_summary
+from app.services.portfolio import (
+    create_portfolio,
+    get_portfolio_holdings,
+    get_portfolio_summary,
+)
 
 blp = Blueprint(
     "portfolio",
@@ -79,7 +83,7 @@ class PortfolioHoldings(MethodView):
         Yahoo Finance 由来の市場価格で、Supabase holdings には保存しない。
         """
         require_auth()
-        abort(501, message=NOT_IMPLEMENTED)
+        return get_portfolio_holdings(args)
 
 
 @blp.route("/allocation")

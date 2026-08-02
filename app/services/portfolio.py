@@ -2,6 +2,7 @@
 
 import datetime
 import decimal
+import math
 import uuid
 
 from flask import g
@@ -11,7 +12,15 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from werkzeug.exceptions import HTTPException
 
 from app.extensions import db
-from app.models import AssetMaster, AssetType, Currency, Holdings, Portfolio, Users
+from app.models import (
+    AssetDataHistory,
+    AssetMaster,
+    AssetType,
+    Currency,
+    Holdings,
+    Portfolio,
+    Users,
+)
 from app.services.market_data import YahooFinanceMarketData
 
 PORTFOLIO_CREATED_MESSAGE = "Portfolio created"
@@ -92,7 +101,10 @@ def get_portfolio_summary(market_data=None):
     total_cost_basis = decimal.Decimal("0")
 
     holdings = db.session.execute(
-        select(Holdings).where(Holdings.portfolio_id == portfolio.id)
+        select(Holdings)
+        .join(Holdings.asset)
+        .where(Holdings.portfolio_id == portfolio.id)
+        .order_by(AssetMaster.ticker)
     ).scalars()
 
     for holding in holdings:
@@ -126,6 +138,107 @@ def get_portfolio_summary(market_data=None):
         "total_return_percent": float(
             _return_percent(total_market_value, total_cost_basis)
         ),
+    }
+
+
+def get_portfolio_holdings(args, market_data=None):
+    """Return paginated non-cash holdings in USD."""
+
+    user_id = _current_user_id()
+    portfolio = db.session.execute(
+        select(Portfolio).where(Portfolio.user_id == user_id)
+    ).scalar_one_or_none()
+    if not portfolio:
+        abort(404, message=PORTFOLIO_NOT_FOUND_MESSAGE)
+
+    market_data = market_data or YahooFinanceMarketData()
+    asset_type_filter = (args.get("asset_type") or "all").lower()
+    page = args.get("page", 1)
+    per_page = args.get("per_page", 20)
+    items = []
+    total_market_value = decimal.Decimal("0")
+    total_day_change = decimal.Decimal("0")
+    total_previous_value = decimal.Decimal("0")
+
+    holdings = db.session.execute(
+        select(Holdings)
+        .join(Holdings.asset)
+        .where(Holdings.portfolio_id == portfolio.id)
+        .order_by(AssetMaster.ticker)
+    ).scalars()
+   
+    for holding in holdings:
+        quantity = _decimal_or_zero(holding.quantity)
+        average_cost = _decimal_or_zero(holding.average_cost)
+        asset = holding.asset
+        asset_type = getattr(getattr(asset, "asset_type", None), "asset_type", None)
+        asset_type_value = (asset_type or "").lower()
+        if asset_type_value == "cash":
+            continue
+        if asset_type_filter != "all" and asset_type_value != asset_type_filter:
+            continue
+        currency = _asset_currency(asset)
+        fx_rate = _decimal_or_none(market_data.fx_to_usd(currency))
+        if fx_rate is None:
+            continue
+        current_price = _decimal_or_none(
+            market_data.latest_price(getattr(asset, "ticker", None))
+        )
+        previous_close = _previous_close_price(holding.asset_id)
+        if current_price is None or previous_close is None:
+            continue
+        current_price_usd = current_price * fx_rate
+        previous_close_usd = previous_close * fx_rate
+        average_purchase_price = average_cost * fx_rate
+        total_purchase_price = average_purchase_price * quantity
+        holding_market_value = current_price_usd * quantity
+        day_change = (current_price_usd - previous_close_usd) * quantity
+
+        total_market_value += holding_market_value
+        total_day_change += day_change
+        total_previous_value += previous_close_usd * quantity
+
+        items.append(
+            {
+                "ticker": asset.ticker,
+                "name": asset.name,
+                "asset_type": asset_type,
+                "quantity": float(quantity),
+                "average_purchase_price": float(average_purchase_price),
+                "total_purchase_price": float(total_purchase_price),
+                "current_price": float(current_price_usd),
+                "total_market_value": float(holding_market_value),
+                "today_return_percent": float(
+                    _return_percent(current_price_usd, previous_close_usd)
+                ),
+                "total_return_percent": float(
+                    _return_percent(current_price_usd, average_purchase_price)
+                ),
+                "currency": SUMMARY_CURRENCY,
+            }
+        )
+
+    total_items = len(items)
+    total_pages = math.ceil(total_items / per_page) if total_items else 0
+    start = (page - 1) * per_page
+    end = start + per_page
+
+    return {
+        "items": items[start:end],
+        "totals": {
+            "market_value": float(total_market_value),
+            "day_change": float(total_day_change),
+            "day_change_percent": float(
+                _percent_of(total_day_change, total_previous_value)
+            ),
+            "currency": SUMMARY_CURRENCY,
+        },
+        "pagination": {
+            "page": page,
+            "per_page": per_page,
+            "total_items": total_items,
+            "total_pages": total_pages,
+        },
     }
 
 
@@ -215,7 +328,25 @@ def _summary_currency_symbol():
     return getattr(currency, "symbol", None) or DEFAULT_USD_SYMBOL
 
 
+def _previous_close_price(asset_id):
+    today = datetime.date.today()
+    row = db.session.execute(
+        select(AssetDataHistory)
+        .where(AssetDataHistory.asset_id == asset_id)
+        .where(AssetDataHistory.price_date < today)
+        .order_by(AssetDataHistory.price_date.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return _decimal_or_none(getattr(row, "close_price", None))
+
+
 def _return_percent(total_market_value, total_cost_basis):
     if total_cost_basis == 0:
         return decimal.Decimal("0")
     return (total_market_value - total_cost_basis) / total_cost_basis * 100
+
+
+def _percent_of(amount, base):
+    if base == 0:
+        return decimal.Decimal("0")
+    return amount / base * 100

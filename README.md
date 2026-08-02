@@ -283,7 +283,7 @@ import し忘れると差分が空のマイグレーションが生成される�
 バリデーション・Swagger UI がまとめて追従する。仕様書だけ手で書き換える運用はしない。
 
 未実装 endpoint でも**リクエストのバリデーションは動く**ので、Swagger UI の
-Try it out で入力仕様の検証はできる（通れば 501、通らなければ 422）。
+Try it out で入力仕様の検証はできる（未実装なら 501、通らなければ 422）。
 
 ### エンドポイント
 
@@ -316,9 +316,20 @@ Try it out で入力仕様の検証はできる（通れば 501、通らなけ�
 }
 ```
 
-`/holdings` の絞り込みは `asset_type`（既定値 `all`）のみ。`asset_id` と
-`search` は受け取らず、検索はフロントエンド側で行う。`/allocation` の
-`items` は分類名を `category` として返す。
+`GET /portfolios/summary` はログイン user の portfolio から USD 建ての
+サマリーを返す。`cash_balance` は cash holding を USD に換算して集計し、
+`total_market_value` と `total_return_percent` は cash 以外の holding だけで
+計算する。市場価格と FX は Yahoo Finance から取得し、DB には保存しない。
+
+`GET /portfolios/holdings` は cash を除いた保有残高一覧を USD 建てで返す。
+`asset_type`（既定値 `all`）、`page`、`per_page` を受け取る。`asset_id` と
+`search` は受け取らず、検索はフロントエンド側で行う。`items` は現在価格・取得単価・
+評価額・当日騰落率・累計損益率を返す。現在価格と FX は Yahoo Finance から取得し、
+前日終値は `asset_data_history` の `price_date < today` の最新 `close_price` を使う。
+必要な market data が足りない holding は一覧と totals から除外する。`totals` は
+ページング後の `items` ではなく、条件に一致した全 holding で集計する。
+
+`/allocation` の `items` は分類名を `category` として返す。
 
 `/performance` は `start_date`, `end_date`, `range`, `interval` を取る。
 `range` は `1d` / `1w` / `1m` / `3m` / `YTD` / `1y` / `all`、
@@ -350,6 +361,8 @@ Finance API から取得した情報を `asset_master` に登録してから取�
   `asset_data_history` 由来で、Supabase `holdings` には書かない。
 - **`cash_balance` は cash holding として扱う。** portfolio table には保存せず、
   `asset_type=cash` の asset を使って holdings に quantity `1` で登録する。
+- **`holdings` 一覧は investment holding だけを返す。** cash は summary の
+  `cash_balance` で扱い、holdings list には含めない。
 - **一括登録は全件検証してから更新する。** 1 件でも不正なら何も更新しない。
 
 Supabase のテーブル定義と将来の実装方針は
@@ -365,11 +378,13 @@ app/
 │   ├── holding.py     保有残高
 │   ├── transaction.py 取引履歴
 │   └── common.py      共通バリデーターと pagination / date range
-├── api/           エンドポイント定義（パスと入出力の宣言のみ。処理は未実装）
+├── api/           エンドポイント定義（パス・入出力・service 呼び出し）
 │   └── parameters.py  パスパラメータの OpenAPI 定義
 ├── auth.py        Supabase access token を検証し g.current_user_id を設定する
 ├── enums.py       TransactionType / Interval
 ├── services/
+│   ├── market_data.py Yahoo Finance から価格・FX を取得する
+│   ├── portfolio.py   portfolio / summary / holdings の business logic
 │   └── supabase.py    Flask app.config から Supabase client を作成する
 └── config.py      設定（OpenAPI / Supabase 設定を含む）
 
@@ -377,6 +392,9 @@ tests/
 ├── config.py
 ├── test_auth.py
 ├── test_config.py
+├── test_portfolio_create.py
+├── test_portfolio_holdings.py
+├── test_portfolio_summary.py
 └── database_connection/
     ├── helpers.py
     ├── test_supabase_connection.py
