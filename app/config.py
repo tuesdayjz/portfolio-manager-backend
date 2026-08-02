@@ -19,6 +19,13 @@ def _env(name: str, default: str | None = None) -> str | None:
     return value.strip() if value and value.strip() else default
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = _env(name)
+    if value is None:
+        return default
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
 class BaseConfig:
     SECRET_KEY = _env("SECRET_KEY", "dev-secret-key-change-me")
     SUPABASE_URL = _env(
@@ -29,6 +36,13 @@ class BaseConfig:
     SUPABASE_SERVICE_ROLE_KEY = _env("SUPABASE_SERVICE_ROLE_KEY")
     # portfolio 作成時の既定通貨。frontend default と合わせて USD にする。
     DEFAULT_BASE_CURRENCY = _env("DEFAULT_BASE_CURRENCY", "USD")
+
+    # ---- Debug 用の認証バイパス -------------------------------------------
+    # true にすると require_auth() が token 検証を飛ばし、DEBUG_USER_ID を
+    # 現在の user として扱う。ローカルの手動確認専用。production では常に無効。
+    AUTH_DISABLED = _env_bool("AUTH_DISABLED", False)
+    DEBUG_USER_ID = _env("DEBUG_USER_ID")
+    DEBUG_USER_EMAIL = _env("DEBUG_USER_EMAIL")
 
     JSON_SORT_KEYS = False
     PROPAGATE_EXCEPTIONS = True
@@ -98,6 +112,8 @@ class DevelopmentConfig(BaseConfig):
 
 class TestingConfig(BaseConfig):
     TESTING = True
+    # テストは require_auth を patch する前提なので、env の影響を受けないようにする。
+    AUTH_DISABLED = False
     # 本番の Supabase を汚さないよう、テストは専用の DB に向ける。
     SQLALCHEMY_DATABASE_URI = _env("TEST_DATABASE_URL", "sqlite+pysqlite:///:memory:")
     SQLALCHEMY_ENGINE_OPTIONS = {}
@@ -106,6 +122,8 @@ class TestingConfig(BaseConfig):
 class ProductionConfig(BaseConfig):
     DEBUG = False
     SQLALCHEMY_DATABASE_URI = _env("DATABASE_URL")
+    # env に AUTH_DISABLED が紛れ込んでも本番では絶対にバイパスさせない。
+    AUTH_DISABLED = False
 
 
 _CONFIGS = {

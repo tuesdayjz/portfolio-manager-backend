@@ -67,5 +67,39 @@ class SupabaseAuthHelperTest(unittest.TestCase):
         self.assertEqual(error.exception.code, 401)
 
 
+class DebugAuthBypassTest(unittest.TestCase):
+    """AUTH_DISABLED のとき token なしで debug user context を作れることを確認する。"""
+
+    def setUp(self):
+        self.app = Flask(__name__)
+        self.app.config.update(
+            {
+                "AUTH_DISABLED": True,
+                "DEBUG_USER_ID": "11111111-1111-1111-1111-111111111111",
+                "DEBUG_USER_EMAIL": "debug@example.com",
+            }
+        )
+
+    def test_require_auth_uses_debug_user_without_token(self):
+        from app.auth import require_auth
+
+        with self.app.test_request_context("/api/v1/transactions"):
+            result = require_auth()
+
+            self.assertEqual(result.id, "11111111-1111-1111-1111-111111111111")
+            self.assertEqual(g.current_user_id, "11111111-1111-1111-1111-111111111111")
+            self.assertEqual(g.current_user_email, "debug@example.com")
+            self.assertIsNone(g.current_access_token)
+
+    def test_require_auth_requires_debug_user_id(self):
+        from app.auth import require_auth
+
+        self.app.config["DEBUG_USER_ID"] = None
+
+        with self.app.test_request_context("/api/v1/transactions"):
+            with self.assertRaises(RuntimeError):
+                require_auth()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -29,6 +29,12 @@ def create_app(config_name: str | None = None) -> Flask:
     register_blueprints(api)
     _register_cli(app)
 
+    if app.config.get("AUTH_DISABLED"):
+        app.logger.warning(
+            "AUTH_DISABLED=true: token 検証を飛ばして DEBUG_USER_ID=%s として動作する。",
+            app.config.get("DEBUG_USER_ID"),
+        )
+
     return app
 
 

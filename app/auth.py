@@ -1,6 +1,8 @@
 """Supabase Auth token を Flask request context に変換する helper。"""
 
-from flask import g, request
+import types
+
+from flask import current_app, g, request
 from flask_smorest import abort
 
 from app.services.supabase import get_supabase_anon_client
@@ -14,7 +16,13 @@ def require_auth():
     受け取らず、この値を server-side caller context として使う。
     ここでは authentication だけを行い、row ownership の authorization は
     後続の SQLAlchemy 実装で `g.current_user_id` を使って判定する。
+
+    `AUTH_DISABLED` が有効なときは token 検証を飛ばし、固定の debug user を
+    caller context に入れる（Swagger UI から token なしで叩くため）。
     """
+
+    if current_app.config.get("AUTH_DISABLED"):
+        return _debug_user()
 
     token = _bearer_token()
     try:
@@ -31,6 +39,23 @@ def require_auth():
     g.current_user_email = getattr(user, "email", None)
     g.current_access_token = token
     return user
+
+
+def _debug_user():
+    """AUTH_DISABLED 時に使う固定 user。DB 上の実在 user と揃えておく。"""
+
+    user_id = current_app.config.get("DEBUG_USER_ID")
+    if not user_id:
+        raise RuntimeError(
+            "AUTH_DISABLED=true のときは DEBUG_USER_ID (Supabase auth user の UUID) が必要。"
+        )
+
+    email = current_app.config.get("DEBUG_USER_EMAIL")
+    g.current_user_id = str(user_id)
+    g.current_user_email = email
+    # RLS 越しの client を使う経路のために、token は明示的に未設定にしておく。
+    g.current_access_token = None
+    return types.SimpleNamespace(id=str(user_id), email=email)
 
 
 def _bearer_token():
