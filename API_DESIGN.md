@@ -261,7 +261,6 @@ Auth 側で管理する。
 | --- | --- | --- |
 | `id` | uuid | internal id。private API response では返さない |
 | `user_id` | uuid | owner; `users.id` を参照 |
-| `name` | text | default portfolio name |
 | `created_at` | timestamptz | default `now()` |
 | `updated_at` | timestamptz | default `now()` |
 
