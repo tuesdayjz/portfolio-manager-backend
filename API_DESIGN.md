@@ -59,7 +59,7 @@ private portfolio data では client から owner identifier を受け取らな�
 | `GET` | `/api/v1/portfolios/summary` | 200 | USD の cash balance、market value、return rate を返す |
 | `GET` | `/api/v1/portfolios/holdings` | 200 | USD の holdings list、totals、pagination を返す |
 | `GET` | `/api/v1/portfolios/allocation` | 200 | `asset_type` / `currency` / `asset` / `sector` で配分を返す |
-| `GET` | `/api/v1/portfolios/performance` | 501 | graph-ready performance points を返す |
+| `GET` | `/api/v1/portfolios/performance` | 200 | graph-ready performance points と期間別 return を返す |
 
 `GET /portfolios/summary`:
 
@@ -166,7 +166,59 @@ allocation response の計算:
 
 - `start_date`
 - `end_date`
-- `interval`: `1d`, `1wk`, `1mo`
+- `range`: `1d`, `1w`, `1m`, `3m`, `YTD`, `1y`, `all`（既定値 `all`）
+- `interval`: `1d`, `1wk`, `1mo`（既定値 `1d`）
+
+`GET /portfolios/performance` の response:
+
+```json
+{
+  "currency": "USD",
+  "interval": "1d",
+  "range": "all",
+  "start_date": "2026-07-24",
+  "end_date": "2026-08-03",
+  "metrics": {
+    "portfolio_value": 2000,
+    "today": { "amount": 50, "percent": 2.56 },
+    "return": { "amount": 200, "percent": 11.11 },
+    "total_return": { "amount": 200, "percent": 11.11 }
+  },
+  "return_1d": { "amount": 50, "percent": 2.56 },
+  "return_1w": { "amount": 100, "percent": 5.26 },
+  "return_1m": { "amount": 200, "percent": 11.11 },
+  "return_3m": { "amount": 200, "percent": 11.11 },
+  "return_YTD": { "amount": 200, "percent": 11.11 },
+  "return_1y": { "amount": 200, "percent": 11.11 },
+  "return_total": { "amount": 200, "percent": 11.11 },
+  "points": [
+    { "date": "2026-07-24", "total_market_value": 1800 },
+    { "date": "2026-08-03", "total_market_value": 2000 }
+  ]
+}
+```
+
+performance response の計算:
+
+- response currency は `USD` 固定。評価額は現金を含む総資産額。
+- 日次の評価額は `asset_data_history` の `close_price` から組み立てる。終値の無い日は
+  直近の終値で評価する。summary / holdings と違い、Yahoo Finance の現在価格は使わない。
+- 各日の保有数量は、現在の `holdings.quantity` から `trade_date` がその日より後の
+  transaction を差し戻して復元する（`buy` は減算、`sell` は加算）。
+- 期間の起点（運用開始日）は最初の `trade_date`。transaction がまだ無い場合は
+  価格データのある最も古い日。評価額の系列は必ずこの日から作るので、
+  `range` を絞っても `return_total` は変わらない。
+- cash holding は取引履歴を持たないため、期間中は一定額として扱う。
+- 過去の FX レートは保存していないため、全期間を通して現在のレートで換算する。
+- `range` と `start_date` / `end_date` の両方が来た場合は日付を優先し、
+  response の `range` は `null` になる。未来の `end_date` は今日に丸める。
+- `return_*` は as-of（= `end_date`）時点の評価額と、各期間の起点日以前で
+  最も新しい評価額との差分。`return_YTD` の起点は前年最終営業日の終値。
+  起点より前のデータが無い期間は、記録のある最も古い評価額を起点にする。
+- `metrics.today` は `return_1d`、`metrics.total_return` は `return_total` と一致する。
+  `metrics.return` は `range`（または `start_date`）で指定した期間の損益。
+- `points` は `interval` ごとに間引く。`1wk` は各 ISO 週、`1mo` は各月の最後の点を残す。
+- FX が取れない holding と、価格データがまだ無い holding は集計から除外する。
 
 ### Assets
 

@@ -1,11 +1,7 @@
-"""ポートフォリオエンドポイントの API 定義。
-
-POST / は作成処理まで実装済み。その他のエンドポイントは現時点では
-仕様の宣言のみで、処理は未実装。
-"""
+"""ポートフォリオエンドポイントの API 定義。"""
 
 from flask.views import MethodView
-from flask_smorest import Blueprint, abort
+from flask_smorest import Blueprint
 
 from app.auth import require_auth
 from app.schemas.holding import HoldingsPageSchema, HoldingsQuerySchema
@@ -19,6 +15,7 @@ from app.schemas.portfolio import (
     PortfolioCreateSchema,
     PortfolioSummarySchema,
 )
+from app.services.performance import get_portfolio_performance
 from app.services.portfolio import (
     create_portfolio,
     get_portfolio_allocation,
@@ -33,7 +30,6 @@ blp = Blueprint(
     description="ポートフォリオ関連",
 )
 
-NOT_IMPLEMENTED = "未実装。API 設計のみ定義済み。"
 PORTFOLIO_NOT_FOUND = "The specified portfolio does not exist"
 
 
@@ -109,16 +105,16 @@ class PortfolioPerformance(MethodView):
     @blp.doc(security=[{"bearerAuth": []}])
     @blp.arguments(PerformanceQuerySchema, location="query")
     @blp.response(200, PerformanceGraphSchema)
-    @blp.alt_response(400, description="start_date must be before or equal to end_date")
+    # start_date > end_date は PerformanceQuerySchema の検証で 422 になる。
     @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
     def get(self, args):
         """ポートフォリオ推移グラフを取得する。
 
-        取引履歴から日付ごとの保有残高を復元し、`asset_data_history` または
-        Yahoo Finance の価格データで評価額と含み損益を計算する想定。
-        `today` は今日の close price と前日の close price の差分で計算する。
-        各期間の return は、今日の close price と対象期間の起点 close price
-        （例: `1w` なら 1 週間前）との差分で計算する。
+        取引履歴から日付ごとの保有残高を復元し、`asset_data_history` の
+        close price で日次の評価額を組み立てる。`today` は今日の close price と
+        前日の close price の差分で計算する。各期間の return は、今日の
+        close price と対象期間の起点 close price（例: `1w` なら 1 週間前）
+        との差分で計算する。
         """
         require_auth()
-        abort(501, message=NOT_IMPLEMENTED)
+        return get_portfolio_performance(args)

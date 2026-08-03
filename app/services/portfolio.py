@@ -1,4 +1,8 @@
-"""Portfolio business logic backed by SQLAlchemy."""
+"""Portfolio business logic backed by SQLAlchemy.
+
+推移グラフ（`GET /portfolios/performance`）だけは計算が独立しているので
+`app/services/performance.py` に分けてある。
+"""
 
 import datetime
 import decimal
@@ -22,12 +26,19 @@ from app.models import (
     Portfolio,
     Users,
 )
+from app.services.common import (
+    SUMMARY_CURRENCY,
+    asset_currency,
+    current_portfolio,
+    current_user_id,
+    decimal_or_none,
+    decimal_or_zero,
+    percent_of,
+)
 from app.services.market_data import YahooFinanceMarketData
 
 PORTFOLIO_CREATED_MESSAGE = "Portfolio created"
 PORTFOLIO_ALREADY_EXISTS_MESSAGE = "Portfolio already exists for this user."
-PORTFOLIO_NOT_FOUND_MESSAGE = "The specified portfolio does not exist"
-SUMMARY_CURRENCY = "USD"
 DEFAULT_USD_SYMBOL = "$"
 UNKNOWN_CATEGORY = "unknown"
 
@@ -40,7 +51,7 @@ def create_portfolio(payload):
     always start with no holding until the user actually trades.
     """
 
-    user_id = _current_user_id()
+    user_id = current_user_id()
     currency_code = payload.get("currency", "USD").upper()
     cash_balance = decimal.Decimal(str(payload.get("cash_balance", 0)))
 
@@ -94,12 +105,7 @@ def create_portfolio(payload):
 def get_portfolio_summary(market_data=None):
     """Return USD summary values for the current user's portfolio."""
 
-    user_id = _current_user_id()
-    portfolio = db.session.execute(
-        select(Portfolio).where(Portfolio.user_id == user_id)
-    ).scalar_one_or_none()
-    if not portfolio:
-        abort(404, message=PORTFOLIO_NOT_FOUND_MESSAGE)
+    portfolio = current_portfolio()
 
     market_data = market_data or YahooFinanceMarketData()
     cash_balance = decimal.Decimal("0")
@@ -114,12 +120,12 @@ def get_portfolio_summary(market_data=None):
     ).scalars()
 
     for holding in holdings:
-        quantity = _decimal_or_zero(holding.quantity)
-        average_cost = _decimal_or_zero(holding.average_cost)
+        quantity = decimal_or_zero(holding.quantity)
+        average_cost = decimal_or_zero(holding.average_cost)
         asset = holding.asset
         asset_type = getattr(getattr(asset, "asset_type", None), "asset_type", None)
-        currency = _asset_currency(asset)
-        fx_rate = _decimal_or_none(market_data.fx_to_usd(currency))
+        currency = asset_currency(asset)
+        fx_rate = decimal_or_none(market_data.fx_to_usd(currency))
         if fx_rate is None:
             continue
 
@@ -127,7 +133,7 @@ def get_portfolio_summary(market_data=None):
             cash_balance += quantity * average_cost * fx_rate
             continue
 
-        current_price = _decimal_or_none(
+        current_price = decimal_or_none(
             market_data.latest_price(getattr(asset, "ticker", None))
         )
         if current_price is None:
@@ -150,12 +156,7 @@ def get_portfolio_summary(market_data=None):
 def get_portfolio_holdings(args, market_data=None):
     """Return paginated non-cash holdings in USD."""
 
-    user_id = _current_user_id()
-    portfolio = db.session.execute(
-        select(Portfolio).where(Portfolio.user_id == user_id)
-    ).scalar_one_or_none()
-    if not portfolio:
-        abort(404, message=PORTFOLIO_NOT_FOUND_MESSAGE)
+    portfolio = current_portfolio()
 
     market_data = market_data or YahooFinanceMarketData()
     asset_type_filter = (args.get("asset_type") or "all").lower()
@@ -174,8 +175,8 @@ def get_portfolio_holdings(args, market_data=None):
     ).scalars()
    
     for holding in holdings:
-        quantity = _decimal_or_zero(holding.quantity)
-        average_cost = _decimal_or_zero(holding.average_cost)
+        quantity = decimal_or_zero(holding.quantity)
+        average_cost = decimal_or_zero(holding.average_cost)
         asset = holding.asset
         asset_type = getattr(getattr(asset, "asset_type", None), "asset_type", None)
         asset_type_value = (asset_type or "").lower()
@@ -183,11 +184,11 @@ def get_portfolio_holdings(args, market_data=None):
             continue
         if asset_type_filter != "all" and asset_type_value != asset_type_filter:
             continue
-        currency = _asset_currency(asset)
-        fx_rate = _decimal_or_none(market_data.fx_to_usd(currency))
+        currency = asset_currency(asset)
+        fx_rate = decimal_or_none(market_data.fx_to_usd(currency))
         if fx_rate is None:
             continue
-        current_price = _decimal_or_none(
+        current_price = decimal_or_none(
             market_data.latest_price(getattr(asset, "ticker", None))
         )
         previous_close = _previous_close_price(holding.asset_id)
@@ -235,7 +236,7 @@ def get_portfolio_holdings(args, market_data=None):
             "market_value": float(total_market_value),
             "day_change": float(total_day_change),
             "day_change_percent": float(
-                _percent_of(total_day_change, total_previous_value)
+                percent_of(total_day_change, total_previous_value)
             ),
             "currency": SUMMARY_CURRENCY,
         },
@@ -251,12 +252,7 @@ def get_portfolio_holdings(args, market_data=None):
 def get_portfolio_allocation(args, market_data=None):
     """Return USD allocation buckets grouped by the requested criterion."""
 
-    user_id = _current_user_id()
-    portfolio = db.session.execute(
-        select(Portfolio).where(Portfolio.user_id == user_id)
-    ).scalar_one_or_none()
-    if not portfolio:
-        abort(404, message=PORTFOLIO_NOT_FOUND_MESSAGE)
+    portfolio = current_portfolio()
 
     market_data = market_data or YahooFinanceMarketData()
     group_by = args["group_by"]
@@ -277,17 +273,17 @@ def get_portfolio_allocation(args, market_data=None):
         # sector を持つのは株式だけなので、それ以外は集計から除く。
         if group_by is AllocationGroupBy.SECTOR and asset_type_value != "stock":
             continue
-        currency = _asset_currency(asset)
-        fx_rate = _decimal_or_none(market_data.fx_to_usd(currency))
+        currency = asset_currency(asset)
+        fx_rate = decimal_or_none(market_data.fx_to_usd(currency))
         if fx_rate is None:
             continue
 
-        quantity = _decimal_or_zero(holding.quantity)
+        quantity = decimal_or_zero(holding.quantity)
         if asset_type_value == "cash":
             # cash holding は quantity=1、average_cost に残高が入っている。
-            value = quantity * _decimal_or_zero(holding.average_cost) * fx_rate
+            value = quantity * decimal_or_zero(holding.average_cost) * fx_rate
         else:
-            current_price = _decimal_or_none(
+            current_price = decimal_or_none(
                 market_data.latest_price(getattr(asset, "ticker", None))
             )
             if current_price is None:
@@ -347,13 +343,6 @@ def _allocation_category(group_by, asset, asset_type, currency, market_data):
     return sector or None
 
 
-def _current_user_id():
-    try:
-        return uuid.UUID(str(g.current_user_id))
-    except (AttributeError, TypeError, ValueError):
-        abort(401, message="Missing authenticated user context.")
-
-
 def _ensure_user(user_id):
     user = db.session.get(Users, user_id)
     if user:
@@ -402,30 +391,6 @@ def _cash_asset(currency_code):
     return asset
 
 
-def _decimal_or_zero(value):
-    if value is None:
-        return decimal.Decimal("0")
-    return decimal.Decimal(str(value))
-
-
-def _decimal_or_none(value):
-    if value is None:
-        return None
-    try:
-        result = decimal.Decimal(str(value))
-    except (decimal.InvalidOperation, TypeError, ValueError):
-        return None
-    if result.is_nan() or result <= 0:
-        return None
-    return result
-
-
-def _asset_currency(asset):
-    return (
-        getattr(getattr(asset, "currency", None), "currency", None) or SUMMARY_CURRENCY
-    ).upper()
-
-
 def _summary_currency_symbol():
     currency = db.session.execute(
         select(Currency).where(Currency.currency == SUMMARY_CURRENCY)
@@ -442,7 +407,7 @@ def _previous_close_price(asset_id):
         .order_by(AssetDataHistory.price_date.desc())
         .limit(1)
     ).scalar_one_or_none()
-    return _decimal_or_none(getattr(row, "close_price", None))
+    return decimal_or_none(getattr(row, "close_price", None))
 
 
 def _return_percent(total_market_value, total_cost_basis):
@@ -456,8 +421,3 @@ def _ratio_of(amount, base):
         return decimal.Decimal("0")
     return amount / base
 
-
-def _percent_of(amount, base):
-    if base == 0:
-        return decimal.Decimal("0")
-    return amount / base * 100
