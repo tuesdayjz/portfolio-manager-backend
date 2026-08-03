@@ -58,7 +58,7 @@ private portfolio data では client から owner identifier を受け取らな�
 | `POST` | `/api/v1/portfolios/` | 201 | portfolio を作成する |
 | `GET` | `/api/v1/portfolios/summary` | 200 | USD の cash balance、market value、return rate を返す |
 | `GET` | `/api/v1/portfolios/holdings` | 200 | USD の holdings list、totals、pagination を返す |
-| `GET` | `/api/v1/portfolios/allocation` | 501 | `asset_type` / `currency` / `asset` / `sector` で配分を返す |
+| `GET` | `/api/v1/portfolios/allocation` | 200 | `asset_type` / `currency` / `asset` / `sector` で配分を返す |
 | `GET` | `/api/v1/portfolios/performance` | 501 | graph-ready performance points を返す |
 
 `GET /portfolios/summary`:
@@ -127,7 +127,40 @@ holdings response の計算:
 
 `GET /portfolios/allocation` の filter:
 
-- `group_by`: `asset_type`, `currency`, `asset`, `sector`
+- `group_by`: `asset_type`, `currency`, `asset`, `sector`（required）
+
+`GET /portfolios/allocation` の response:
+
+```json
+{
+  "group_by": "asset_type",
+  "currency": "USD",
+  "total_value": 2350,
+  "items": [
+    { "category": "stock", "value": 1030, "weight": 0.4383, "holdings_count": 2 },
+    { "category": "cash", "value": 1000, "weight": 0.4255, "holdings_count": 1 },
+    { "category": "etf", "value": 320, "weight": 0.1362, "holdings_count": 1 }
+  ],
+  "as_of": "2026-08-02T14:25:00+00:00"
+}
+```
+
+allocation response の計算:
+
+- response currency は `USD` 固定。評価額は holdings と同じく
+  `quantity * current_price * FX` で計算する。
+- cash holding は `average_cost * quantity * FX` を評価額として集計に含める。
+  cash を持たないのは `group_by=sector` のときだけ。
+- `category` は集計基準ごとの区分名。`asset_type` は資産クラス名、`currency` は
+  asset の元通貨コード、`asset` は銘柄名（無ければ ticker）、`sector` は
+  Yahoo Finance の sector。
+- `group_by=sector` は株式（`asset_type=stock`）だけを対象にし、sector が
+  取れない銘柄は除外する。`total_value` も株式ぶんだけの合計になる。
+- `weight` は `value / total_value` の 0〜1 の割合。`total_value` が 0 なら 0。
+- `items` は `value` の降順。同額のときは `category` 名の昇順。
+- `holdings_count` はその区分に含まれる holding 件数。
+- current price / FX が取れない holding は集計から除外する。
+- `as_of` は市場価格を取得した時刻（UTC）。
 
 `GET /portfolios/performance` の filter:
 
