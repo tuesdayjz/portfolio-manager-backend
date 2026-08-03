@@ -1,6 +1,6 @@
 """取引履歴エンドポイントの API 定義。
 
-パスと入出力スキーマの宣言のみ。処理は未実装。
+取引作成（単件・一括）は実装済み。取引履歴の取得は未実装。
 """
 
 from flask.views import MethodView
@@ -14,6 +14,7 @@ from app.schemas.transaction import (
     TransactionQuerySchema,
     TransactionSchema,
 )
+from app.services.transaction import create_transaction, create_transactions_batch
 
 blp = Blueprint(
     "transactions",
@@ -63,7 +64,7 @@ class TransactionCollection(MethodView):
         作成した取引の成功確認として、約定日時・銘柄・最終約定金額を返す。
         """
         require_auth()
-        abort(501, message=NOT_IMPLEMENTED)
+        return create_transaction(payload)
 
 
 @blp.route("/transactions/batch")
@@ -80,4 +81,4 @@ class TransactionBatch(MethodView):
         全件を検証してから作成するため、1 件でも不正なら何も作成しない。
         """
         require_auth()
-        abort(501, message=NOT_IMPLEMENTED)
+        return create_transactions_batch(payload)

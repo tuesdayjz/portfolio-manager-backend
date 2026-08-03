@@ -100,7 +100,6 @@ class PortfolioAllocationEndpointTest(unittest.TestCase):
             CREATE TABLE portfolio (
                 id CHAR(32) PRIMARY KEY,
                 user_id CHAR(32) NOT NULL UNIQUE,
-                name TEXT NOT NULL,
                 created_at DATETIME NOT NULL,
                 updated_at DATETIME NOT NULL
             )
@@ -184,7 +183,6 @@ class PortfolioAllocationEndpointTest(unittest.TestCase):
         portfolio = Portfolio(
             id=uuid.uuid4(),
             user_id=self.user_id,
-            name="Main Portfolio",
             created_at=now,
             updated_at=now,
         )

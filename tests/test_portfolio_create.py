@@ -75,7 +75,6 @@ class PortfolioCreateEndpointTest(unittest.TestCase):
             CREATE TABLE portfolio (
                 id CHAR(32) PRIMARY KEY,
                 user_id CHAR(32) NOT NULL UNIQUE,
-                name TEXT NOT NULL,
                 created_at DATETIME NOT NULL,
                 updated_at DATETIME NOT NULL
             )
@@ -158,7 +157,7 @@ class PortfolioCreateEndpointTest(unittest.TestCase):
 
     def test_create_portfolio_returns_message(self):
         response = self._post_portfolio(
-            {"name": "Main Portfolio", "currency": "USD", "cash_balance": 1000000}
+            {"currency": "USD", "cash_balance": 1000000}
         )
 
         self.assertEqual(response.status_code, 201)
@@ -171,28 +170,25 @@ class PortfolioCreateEndpointTest(unittest.TestCase):
             Portfolio(
                 id=uuid.uuid4(),
                 user_id=self.user_id,
-                name="Existing Portfolio",
                 created_at=now,
                 updated_at=now,
             )
         )
         db.session.commit()
 
-        response = self._post_portfolio({"name": "Main Portfolio"})
+        response = self._post_portfolio({})
 
         self.assertEqual(response.status_code, 409)
         self.assertEqual(Portfolio.query.count(), 1)
 
     def test_create_portfolio_requires_bearer_token(self):
-        response = self.client.post(
-            "/api/v1/portfolios/", json={"name": "Main Portfolio"}
-        )
+        response = self.client.post("/api/v1/portfolios/", json={})
 
         self.assertEqual(response.status_code, 401)
 
     def test_create_portfolio_stores_cash_balance_as_cash_holding(self):
         response = self._post_portfolio(
-            {"name": "Main Portfolio", "currency": "USD", "cash_balance": 1000000}
+            {"currency": "USD", "cash_balance": 1000000}
         )
 
         self.assertEqual(response.status_code, 201)
@@ -203,18 +199,14 @@ class PortfolioCreateEndpointTest(unittest.TestCase):
         self.assertEqual(holding.asset.name, "Cash USD")
 
     def test_create_portfolio_with_zero_cash_creates_no_holding(self):
-        response = self._post_portfolio(
-            {"name": "Main Portfolio", "currency": "USD", "cash_balance": 0}
-        )
+        response = self._post_portfolio({"currency": "USD", "cash_balance": 0})
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Portfolio.query.count(), 1)
         self.assertEqual(Holdings.query.count(), 0)
 
     def test_create_portfolio_defaults_currency_to_usd(self):
-        response = self._post_portfolio(
-            {"name": "Main Portfolio", "cash_balance": 1000000}
-        )
+        response = self._post_portfolio({"cash_balance": 1000000})
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Holdings.query.one().asset.ticker, "CASH-USD")

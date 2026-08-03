@@ -6,12 +6,12 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
       description: Default error response
-    UNPROCESSABLE_CONTENT:
+    UNPROCESSABLE_ENTITY:
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
-      description: Unprocessable Content
+      description: Unprocessable Entity
   schemas:
     AllocationItem:
       additionalProperties: false
@@ -430,11 +430,6 @@ components:
           default: USD
           example: USD
           type: string
-        name:
-          example: Main Portfolio
-          type: string
-      required:
-      - name
       type: object
     PortfolioCreateConflict:
       additionalProperties: false
@@ -758,7 +753,7 @@ paths:
         '404':
           description: The specified asset does not exist
         '422':
-          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
+          $ref: '#/components/responses/UNPROCESSABLE_ENTITY'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
       summary: 過去の市場価格を取得する。
@@ -797,7 +792,7 @@ paths:
                 $ref: '#/components/schemas/PortfolioCreateConflict'
           description: Portfolio already exists for this user
         '422':
-          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
+          $ref: '#/components/responses/UNPROCESSABLE_ENTITY'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
       security:
@@ -834,7 +829,7 @@ paths:
         '404':
           description: The specified portfolio does not exist
         '422':
-          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
+          $ref: '#/components/responses/UNPROCESSABLE_ENTITY'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
       security:
@@ -888,7 +883,7 @@ paths:
         '404':
           description: The specified portfolio does not exist
         '422':
-          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
+          $ref: '#/components/responses/UNPROCESSABLE_ENTITY'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
       security:
@@ -960,7 +955,7 @@ paths:
         '404':
           description: The specified portfolio does not exist
         '422':
-          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
+          $ref: '#/components/responses/UNPROCESSABLE_ENTITY'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
       security:
@@ -1073,7 +1068,7 @@ paths:
         '404':
           description: The specified portfolio does not exist
         '422':
-          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
+          $ref: '#/components/responses/UNPROCESSABLE_ENTITY'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
       security:
@@ -1108,7 +1103,7 @@ paths:
         '404':
           description: The specified portfolio does not exist
         '422':
-          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
+          $ref: '#/components/responses/UNPROCESSABLE_ENTITY'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
       security:
@@ -1141,7 +1136,7 @@ paths:
         '404':
           description: The specified portfolio does not exist
         '422':
-          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
+          $ref: '#/components/responses/UNPROCESSABLE_ENTITY'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
       security:
