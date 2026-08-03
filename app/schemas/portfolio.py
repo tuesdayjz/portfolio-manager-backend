@@ -17,7 +17,6 @@ _CASH_BALANCE_NOTE = (
 class PortfolioCreateSchema(Schema):
     """ポートフォリオの新規作成。所有者はログイン情報から解決する。"""
 
-    name = fields.Str(required=True, metadata={"example": "Main Portfolio"})
     # Frontend defaults this to USD, but the API accepts it for future flexibility.
     currency = fields.Str(load_default="USD", metadata={"example": "USD"})
     cash_balance = fields.Float(

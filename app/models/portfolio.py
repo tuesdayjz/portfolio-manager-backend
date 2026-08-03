@@ -8,7 +8,6 @@ from sqlalchemy import (
     DateTime,
     ForeignKeyConstraint,
     PrimaryKeyConstraint,
-    Text,
     UniqueConstraint,
     Uuid,
     text,
@@ -37,9 +36,6 @@ class Portfolio(db.Model):
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, nullable=False, server_default=text("gen_random_uuid()")
-    )
-    name: Mapped[str] = mapped_column(
-        Text, nullable=False, server_default=text("'Default Portfolio'::text")
     )
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(True), nullable=False, server_default=text("now()")

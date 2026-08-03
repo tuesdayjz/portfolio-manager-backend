@@ -302,15 +302,14 @@ Try it out で入力仕様の検証はできる（未実装なら 501、通ら�
 | POST | `/transactions` | transactions | 取引の登録（単件） |
 | POST | `/transactions/batch` | transactions | 取引の一括登録 |
 
-`POST /portfolios/` は `name`、任意の `currency`（フロントエンド既定値は
-`USD`）、任意の `cash_balance` を受け取り、成功時は `message` だけを返す。
+`POST /portfolios/` は任意の `currency`（フロントエンド既定値は `USD`）、
+任意の `cash_balance` を受け取り、成功時は `message` だけを返す。
 すでに portfolio があるユーザーの場合は `409 Conflict` を返す。
 `cash_balance` は portfolio 作成時に cash holding として登録し、quantity は
-`1` として扱う。
+`1` として扱う。portfolio に名前は持たせない。
 
 ```json
 {
-  "name": "Main Portfolio",
   "currency": "USD",
   "cash_balance": 1000000
 }

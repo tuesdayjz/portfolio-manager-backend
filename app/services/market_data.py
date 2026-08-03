@@ -10,6 +10,7 @@ class YahooFinanceMarketData:
         self._prices = {}
         self._fx_rates = {}
         self._sectors = {}
+        self._asset_meta = {}
 
     def latest_price(self, ticker):
         ticker = (ticker or "").strip()
@@ -34,6 +35,35 @@ class YahooFinanceMarketData:
         if ticker not in self._sectors:
             self._sectors[ticker] = self._fetch_sector(ticker)
         return self._sectors[ticker]
+
+    def asset_meta(self, ticker):
+        """Return `{"quote_type": ..., "currency": ...}` for a new ticker, or None."""
+
+        ticker = (ticker or "").strip()
+        if not ticker:
+            return None
+        if ticker not in self._asset_meta:
+            self._asset_meta[ticker] = self._fetch_asset_meta(ticker)
+        return self._asset_meta[ticker]
+
+    def _fetch_asset_meta(self, ticker):
+        try:
+            import yfinance as yf
+
+            info = yf.Ticker(ticker).info or {}
+        except Exception:
+            return None
+
+        quote_type = info.get("quoteType")
+        currency = info.get("currency")
+        if not isinstance(quote_type, str) or not quote_type.strip():
+            return None
+        if not isinstance(currency, str) or not currency.strip():
+            return None
+        return {
+            "quote_type": quote_type.strip().upper(),
+            "currency": currency.strip().upper(),
+        }
 
     def _fetch_latest_price(self, ticker):
         try:

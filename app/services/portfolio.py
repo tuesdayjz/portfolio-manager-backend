@@ -52,7 +52,6 @@ def create_portfolio(payload):
         portfolio = Portfolio(
             id=uuid.uuid4(),
             user_id=user_id,
-            name=payload["name"],
             created_at=now,
             updated_at=now,
         )
