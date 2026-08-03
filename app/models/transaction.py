@@ -47,6 +47,7 @@ class Transactions(db.Model):
     fees: Mapped[decimal.Decimal] = mapped_column(
         Numeric, nullable=False, server_default=text("0")
     )
+    average_cost_before_sale: Mapped[decimal.Decimal | None] = mapped_column(Numeric)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(True), nullable=False, server_default=text("now()")
     )

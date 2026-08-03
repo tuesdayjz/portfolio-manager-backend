@@ -123,6 +123,7 @@ class TransactionCreateEndpointTest(unittest.TestCase):
                 quantity NUMERIC NOT NULL,
                 price NUMERIC NOT NULL,
                 fees NUMERIC NOT NULL DEFAULT 0,
+                average_cost_before_sale NUMERIC,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 transaction_type TEXT NOT NULL
             )
