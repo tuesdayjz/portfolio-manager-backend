@@ -33,7 +33,12 @@ UNKNOWN_CATEGORY = "unknown"
 
 
 def create_portfolio(payload):
-    """Create the current user's only portfolio and optional initial cash holding."""
+    """Create the current user's only portfolio and its initial cash holding.
+
+    `cash_balance` defaults to `DEFAULT_INITIAL_CASH_BALANCE` (see
+    `PortfolioCreateSchema`) unless the client overrides it; other assets
+    always start with no holding until the user actually trades.
+    """
 
     user_id = _current_user_id()
     currency_code = payload.get("currency", "USD").upper()
