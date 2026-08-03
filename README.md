@@ -112,6 +112,25 @@ Swagger UI で private API を手動テストする場合は、ローカルの `
 実行し、出力を Swagger UI の **Authorize** に貼り付ける。HTTP header 形式で
 確認したい場合は `--header` を付ける。
 
+### デバッグ時に token を省略する
+
+毎回 token を発行して Swagger UI に貼り直すのが面倒な場合は、ローカルの
+`.env` に以下を置くと `require_auth()` が token 検証を飛ばし、
+`DEBUG_USER_ID` を現在のユーザーとして扱う。
+
+```bash
+AUTH_DISABLED=true
+DEBUG_USER_ID=<Supabase auth user の UUID>
+DEBUG_USER_EMAIL=<その user の email>
+```
+
+`DEBUG_USER_ID` は `scripts/create_test_user.py` が作成時に表示する user id を使う。
+実在する user の id にしておかないと、その id で新しい `users` row が作られる点に注意。
+
+有効にすると起動時に `AUTH_DISABLED=true: ...` の warning log が出る。
+`FLASK_ENV=production` では config 側で強制的に無効化されるため、
+env に残っていても本番では効かない。切り戻しは `AUTH_DISABLED=false` に戻すだけでよい。
+
 > Review note: この branch では authentication だけを準備し、authorization
 > check と業務 DB write は SQLAlchemy branch との merge 後に実装する。
 
