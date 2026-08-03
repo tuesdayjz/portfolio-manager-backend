@@ -44,6 +44,15 @@ class BaseConfig:
     DEBUG_USER_ID = _env("DEBUG_USER_ID")
     DEBUG_USER_EMAIL = _env("DEBUG_USER_EMAIL")
 
+    # ---- CORS --------------------------------------------------------------
+    # React が Flask を直接 fetch する経路（lib/portfolio-api.ts など）向け。
+    # Bearer token 認証で cookie は使わないので credentials は許可しない。
+    CORS_ORIGINS = [
+        origin.strip()
+        for origin in (_env("CORS_ORIGINS", "http://localhost:3000") or "").split(",")
+        if origin.strip()
+    ]
+
     JSON_SORT_KEYS = False
     PROPAGATE_EXCEPTIONS = True
 
