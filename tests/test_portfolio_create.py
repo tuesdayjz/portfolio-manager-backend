@@ -211,6 +211,15 @@ class PortfolioCreateEndpointTest(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Holdings.query.one().asset.ticker, "CASH-USD")
 
+    def test_create_portfolio_defaults_cash_balance_to_one_million(self):
+        response = self._post_portfolio({})
+
+        self.assertEqual(response.status_code, 201)
+        holding = Holdings.query.one()
+        self.assertEqual(float(holding.quantity), 1.0)
+        self.assertEqual(float(holding.average_cost), 1_000_000.0)
+        self.assertEqual(holding.asset.ticker, "CASH-USD")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -12,6 +12,7 @@ from app.schemas.common import (
 _CASH_BALANCE_NOTE = (
     "Initial cash amount stored as a cash holding with quantity 1"
 )
+DEFAULT_INITIAL_CASH_BALANCE = 1_000_000
 
 
 class PortfolioCreateSchema(Schema):
@@ -20,8 +21,12 @@ class PortfolioCreateSchema(Schema):
     # Frontend defaults this to USD, but the API accepts it for future flexibility.
     currency = fields.Str(load_default="USD", metadata={"example": "USD"})
     cash_balance = fields.Float(
-        load_default=0, validate=NON_NEGATIVE,
-        metadata={"description": _CASH_BALANCE_NOTE, "example": 1000000},
+        load_default=DEFAULT_INITIAL_CASH_BALANCE, validate=NON_NEGATIVE,
+        metadata={
+            "description": f"{_CASH_BALANCE_NOTE}. Defaults to "
+            f"{DEFAULT_INITIAL_CASH_BALANCE} if omitted.",
+            "example": 1000000,
+        },
     )
 
 
