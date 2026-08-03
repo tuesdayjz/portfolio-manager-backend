@@ -190,11 +190,15 @@ def get_portfolio_holdings(args, market_data=None):
         current_price = _decimal_or_none(
             market_data.latest_price(getattr(asset, "ticker", None))
         )
-        previous_close = _previous_close_price(holding.asset_id)
-        if current_price is None or previous_close is None:
+        if current_price is None:
             continue
         current_price_usd = current_price * fx_rate
-        previous_close_usd = previous_close * fx_rate
+        previous_close = _previous_close_price(holding.asset_id)
+        # No price history yet for this asset: report today's change as flat
+        # rather than dropping the holding from the response.
+        previous_close_usd = (
+            previous_close * fx_rate if previous_close is not None else current_price_usd
+        )
         average_purchase_price = average_cost * fx_rate
         total_purchase_price = average_purchase_price * quantity
         holding_market_value = current_price_usd * quantity

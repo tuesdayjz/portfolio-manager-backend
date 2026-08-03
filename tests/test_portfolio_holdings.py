@@ -377,7 +377,9 @@ class PortfolioHoldingsEndpointTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["items"], [])
 
-    def test_holdings_skips_missing_previous_close(self):
+    def test_holdings_reports_flat_change_when_previous_close_is_missing(self):
+        """A holding with no price history yet must still appear, with
+        today's change reported as flat rather than being dropped."""
         portfolio = self._create_portfolio()
         stock = self._asset("AAPL", "Apple Inc.", self.stock_type, self.usd)
         self._holding(portfolio, stock, quantity=1, average_cost=80)
@@ -387,7 +389,16 @@ class PortfolioHoldingsEndpointTest(unittest.TestCase):
         response = self._get_holdings()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["items"], [])
+        data = response.get_json()
+        self.assertEqual(len(data["items"]), 1)
+        item = data["items"][0]
+        self.assertEqual(item["ticker"], "AAPL")
+        self.assertEqual(item["current_price"], 100)
+        self.assertEqual(item["today_return_percent"], 0)
+        self.assertEqual(item["total_return_percent"], 25)
+        self.assertEqual(data["totals"]["market_value"], 100)
+        self.assertEqual(data["totals"]["day_change"], 0)
+        self.assertEqual(data["totals"]["day_change_percent"], 0)
 
     def test_holdings_returns_404_when_portfolio_is_missing(self):
         response = self._get_holdings()
