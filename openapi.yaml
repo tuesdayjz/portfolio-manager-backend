@@ -6,12 +6,12 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
       description: Default error response
-    UNPROCESSABLE_ENTITY:
+    UNPROCESSABLE_CONTENT:
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
-      description: Unprocessable Entity
+      description: Unprocessable Content
   schemas:
     AllocationItem:
       additionalProperties: false
@@ -564,6 +564,64 @@ components:
       required:
       - transactions
       type: object
+    TransactionHistoryItem:
+      additionalProperties: false
+      properties:
+        asset_type:
+          description: 資産クラス
+          example: stock
+          maxLength: 20
+          type: string
+        date:
+          description: 取引日
+          example: '2026-05-26'
+          format: date
+          type: string
+        executed_price:
+          description: 約定金額（約定単価 × 数量）
+          example: 16094.7
+          minimum: 0.0
+          type: number
+        executed_unit_price:
+          description: 約定単価
+          example: 2980.5
+          minimum: 0.0
+          type: number
+        name:
+          description: Asset name
+          example: Toyota Motor Corp.
+          type: string
+        quantity:
+          description: 取引数量
+          example: 5.4
+          minimum: 0.0
+          type: number
+        realized_pl:
+          description: 実現損益。buy は未確定のため null。
+          example: 318750
+          nullable: true
+          type: number
+        symbol:
+          description: Yahoo Finance symbol
+          example: 7203.T
+          type: string
+        transaction_type:
+          enum:
+          - buy
+          - sell
+          example: sell
+          type: string
+      required:
+      - asset_type
+      - date
+      - executed_price
+      - executed_unit_price
+      - name
+      - quantity
+      - realized_pl
+      - symbol
+      - transaction_type
+      type: object
     TransactionItem:
       additionalProperties: false
       properties:
@@ -614,7 +672,7 @@ components:
       properties:
         items:
           items:
-            $ref: '#/components/schemas/Transaction'
+            $ref: '#/components/schemas/TransactionHistoryItem'
           type: array
         pagination:
           $ref: '#/components/schemas/Pagination'
@@ -628,13 +686,8 @@ components:
     TransactionTotals:
       additionalProperties: false
       properties:
-        cost_basis:
-          description: 売却分の取得原価の合計
-          example: 2850000
-          minimum: 0.0
-          type: number
         currency:
-          example: JPY
+          example: USD
           type: string
         realized_pl:
           description: 実現損益の合計。損失なら負。
@@ -644,17 +697,10 @@ components:
           description: 取得原価の合計に対する実現損益率（％）
           example: 11.18
           type: number
-        sell_count:
-          description: 合計の対象になった売却取引の件数
-          example: 42
-          minimum: 0
-          type: integer
       required:
-      - cost_basis
       - currency
       - realized_pl
       - realized_pl_percent
-      - sell_count
       type: object
   securitySchemes:
     bearerAuth:
@@ -753,7 +799,7 @@ paths:
         '404':
           description: The specified asset does not exist
         '422':
-          $ref: '#/components/responses/UNPROCESSABLE_ENTITY'
+          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
       summary: 過去の市場価格を取得する。
@@ -792,7 +838,7 @@ paths:
                 $ref: '#/components/schemas/PortfolioCreateConflict'
           description: Portfolio already exists for this user
         '422':
-          $ref: '#/components/responses/UNPROCESSABLE_ENTITY'
+          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
       security:
@@ -829,7 +875,7 @@ paths:
         '404':
           description: The specified portfolio does not exist
         '422':
-          $ref: '#/components/responses/UNPROCESSABLE_ENTITY'
+          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
       security:
@@ -883,7 +929,7 @@ paths:
         '404':
           description: The specified portfolio does not exist
         '422':
-          $ref: '#/components/responses/UNPROCESSABLE_ENTITY'
+          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
       security:
@@ -955,7 +1001,7 @@ paths:
         '404':
           description: The specified portfolio does not exist
         '422':
-          $ref: '#/components/responses/UNPROCESSABLE_ENTITY'
+          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
       security:
@@ -1068,7 +1114,7 @@ paths:
         '404':
           description: The specified portfolio does not exist
         '422':
-          $ref: '#/components/responses/UNPROCESSABLE_ENTITY'
+          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
       security:
@@ -1103,7 +1149,7 @@ paths:
         '404':
           description: The specified portfolio does not exist
         '422':
-          $ref: '#/components/responses/UNPROCESSABLE_ENTITY'
+          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
       security:
@@ -1136,7 +1182,7 @@ paths:
         '404':
           description: The specified portfolio does not exist
         '422':
-          $ref: '#/components/responses/UNPROCESSABLE_ENTITY'
+          $ref: '#/components/responses/UNPROCESSABLE_CONTENT'
         default:
           $ref: '#/components/responses/DEFAULT_ERROR'
       security:

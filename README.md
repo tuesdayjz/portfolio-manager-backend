@@ -365,11 +365,16 @@ holding 件数を `holdings_count` として `value` の降順で返す。cash h
 
 `/transactions` の絞り込みは `transaction_type`, `asset_type`（既定値
 `all`）, `start_date`, `end_date`。`asset_id` と `search` は受け取らない。
-単件作成と一括作成の各 item は `ticker`, `name`, `position`, `order_type`,
-`transaction_type`, `quantity` を受け取り、成功時は作成された取引の確認として
-`date`, `symbol`, `name`, `executed_price`, `executed_unit_price`,
-`asset_type` の約定サマリーを返す。新しい asset を追加する場合は、Yahoo
-Finance API から取得した情報を `asset_master` に登録してから取引を作成する。
+履歴取得は `items` に `date`, `symbol`, `name`, `asset_type`, `quantity`,
+`transaction_type`, `executed_price`, `executed_unit_price`, `realized_pl` を返す。
+`realized_pl` は sell のみ計算し、buy は `null`。`totals` はページング前の
+フィルタ適用後全件を対象に、`realized_pl`, `realized_pl_percent`, `currency`
+を返す。単件作成と一括作成の各 item は `ticker`, `name`, `position`,
+`order_type`, `transaction_type`, `quantity` を受け取り、成功時は作成された
+取引の確認として `date`, `symbol`, `name`, `executed_price`,
+`executed_unit_price`, `asset_type` の約定サマリーを返す。新しい asset を
+追加する場合は、Yahoo Finance API から取得した情報を `asset_master` に登録してから
+取引を作成する。
 
 ### 設計メモ
 

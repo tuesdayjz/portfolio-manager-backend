@@ -1,10 +1,10 @@
 """取引履歴エンドポイントの API 定義。
 
-取引作成（単件・一括）は実装済み。取引履歴の取得は未実装。
+取引履歴の取得と、取引作成（単件・一括）を提供する。
 """
 
 from flask.views import MethodView
-from flask_smorest import Blueprint, abort
+from flask_smorest import Blueprint
 
 from app.auth import require_auth
 from app.schemas.transaction import (
@@ -14,7 +14,11 @@ from app.schemas.transaction import (
     TransactionQuerySchema,
     TransactionSchema,
 )
-from app.services.transaction import create_transaction, create_transactions_batch
+from app.services.transaction import (
+    create_transaction,
+    create_transactions_batch,
+    get_portfolio_transactions,
+)
 
 blp = Blueprint(
     "transactions",
@@ -23,7 +27,6 @@ blp = Blueprint(
     description="取引履歴関連",
 )
 
-NOT_IMPLEMENTED = "未実装。API 設計のみ定義済み。"
 PORTFOLIO_NOT_FOUND = "The specified portfolio does not exist"
 
 
@@ -45,7 +48,7 @@ class PortfolioTransactionCollection(MethodView):
         対象にする。
         """
         require_auth()
-        abort(501, message=NOT_IMPLEMENTED)
+        return get_portfolio_transactions(args)
 
 
 @blp.route("/transactions")

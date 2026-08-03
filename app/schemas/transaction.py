@@ -80,6 +80,53 @@ class TransactionSchema(Schema):
     )
 
 
+class TransactionHistoryItemSchema(Schema):
+    """取引履歴 1 件。作成レスポンスより UI 一覧向けの情報を多く返す。"""
+
+    date = fields.Date(
+        required=True,
+        metadata={"description": "取引日", "example": "2026-05-26"},
+    )
+    symbol = fields.Str(
+        required=True,
+        metadata={"description": "Yahoo Finance symbol", "example": "7203.T"},
+    )
+    name = fields.Str(
+        required=True,
+        metadata={"description": "Asset name", "example": "Toyota Motor Corp."},
+    )
+    asset_type = fields.Str(
+        required=True, validate=validate.Length(max=20),
+        metadata={"description": "資産クラス", "example": "stock"},
+    )
+    quantity = fields.Float(
+        required=True,
+        validate=POSITIVE,
+        metadata={"description": "取引数量", "example": 5.4},
+    )
+    transaction_type = fields.Str(
+        required=True,
+        validate=validate.OneOf([item.value for item in TransactionType]),
+        metadata={"example": "sell"},
+    )
+    executed_price = fields.Float(
+        required=True, validate=NON_NEGATIVE,
+        metadata={"description": "約定金額（約定単価 × 数量）", "example": 16094.70},
+    )
+    executed_unit_price = fields.Float(
+        required=True, validate=NON_NEGATIVE,
+        metadata={"description": "約定単価", "example": 2980.5},
+    )
+    realized_pl = fields.Float(
+        required=True,
+        allow_none=True,
+        metadata={
+            "description": "実現損益。buy は未確定のため null。",
+            "example": 318750,
+        },
+    )
+
+
 class TransactionTotalsSchema(Schema):
     """取引履歴の合計行。
 
@@ -87,10 +134,6 @@ class TransactionTotalsSchema(Schema):
     `buy` は実現損益を持たないため、どの値も `sell` だけを対象にする。
     """
 
-    cost_basis = fields.Float(
-        required=True, validate=NON_NEGATIVE,
-        metadata={"description": "売却分の取得原価の合計", "example": 2850000},
-    )
     realized_pl = fields.Float(
         required=True,
         metadata={"description": "実現損益の合計。損失なら負。", "example": 318750},
@@ -102,17 +145,13 @@ class TransactionTotalsSchema(Schema):
             "example": 11.18,
         },
     )
-    sell_count = fields.Int(
-        required=True, validate=NON_NEGATIVE,
-        metadata={"description": "合計の対象になった売却取引の件数", "example": 42},
-    )
-    currency = fields.Str(required=True, metadata={"example": "JPY"})
+    currency = fields.Str(required=True, metadata={"example": "USD"})
 
 
 class TransactionPageSchema(Schema):
     """取引履歴（ページング付き）。UI の「Page 1 of 5」に対応する。"""
 
-    items = fields.List(fields.Nested(TransactionSchema), required=True)
+    items = fields.List(fields.Nested(TransactionHistoryItemSchema), required=True)
     totals = fields.Nested(TransactionTotalsSchema, required=True)
     pagination = fields.Nested(PaginationSchema, required=True)
 

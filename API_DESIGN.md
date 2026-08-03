@@ -182,7 +182,7 @@ assets endpoint は public data を扱うため、`user_id` は不要。
 
 | Method | Path | 状態 | 内容 |
 | --- | --- | --- | --- |
-| `GET` | `/api/v1/portfolios/transactions` | 501 | transaction history、realized P/L、pagination を返す |
+| `GET` | `/api/v1/portfolios/transactions` | 200 | transaction history、realized P/L、pagination を返す |
 | `POST` | `/api/v1/transactions` | 501 | 1 件の buy / sell を登録し holdings を更新する |
 | `POST` | `/api/v1/transactions/batch` | 501 | 複数 transaction をまとめて登録する |
 
@@ -194,6 +194,11 @@ assets endpoint は public data を扱うため、`user_id` は不要。
 - `end_date`
 - `page`
 - `per_page`
+
+response は `items` に `date`, `symbol`, `name`, `asset_type`, `quantity`,
+`transaction_type`, `executed_price`, `executed_unit_price`, `realized_pl` を返す。
+`realized_pl` は sell のみ計算し、buy は `null`。`totals` はページング前の
+フィルタ適用後全件を対象にする。
 
 transaction write の将来挙動:
 
