@@ -601,6 +601,11 @@ components:
           example: 318750
           nullable: true
           type: number
+        realized_pl_percent:
+          description: 売却前取得原価に対する実現損益率（％）。buy は null。
+          example: 11.18
+          nullable: true
+          type: number
         symbol:
           description: Yahoo Finance symbol
           example: 7203.T
@@ -619,6 +624,7 @@ components:
       - name
       - quantity
       - realized_pl
+      - realized_pl_percent
       - symbol
       - transaction_type
       type: object

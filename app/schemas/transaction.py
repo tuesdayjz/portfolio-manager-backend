@@ -125,6 +125,14 @@ class TransactionHistoryItemSchema(Schema):
             "example": 318750,
         },
     )
+    realized_pl_percent = fields.Float(
+        required=True,
+        allow_none=True,
+        metadata={
+            "description": "売却前取得原価に対する実現損益率（％）。buy は null。",
+            "example": 11.18,
+        },
+    )
 
 
 class TransactionTotalsSchema(Schema):

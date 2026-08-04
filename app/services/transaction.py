@@ -158,6 +158,10 @@ def _transaction_history_item(transaction, holding, asset, asset_type):
     quantity = _decimal_or_zero(transaction.quantity)
     unit_price = _decimal_or_zero(transaction.price)
     realized_pl = _realized_pl(transaction, holding)
+    cost_basis = _transaction_cost_basis(transaction, holding)
+    realized_pl_percent = (
+        _percent_of(realized_pl, cost_basis) if realized_pl is not None else None
+    )
 
     return {
         "date": transaction.trade_date,
@@ -169,6 +173,9 @@ def _transaction_history_item(transaction, holding, asset, asset_type):
         "executed_price": float(unit_price * quantity),
         "executed_unit_price": float(unit_price),
         "realized_pl": float(realized_pl) if realized_pl is not None else None,
+        "realized_pl_percent": (
+            float(realized_pl_percent) if realized_pl_percent is not None else None
+        ),
     }
 
 
@@ -180,10 +187,8 @@ def _transaction_history_totals(rows):
         line_realized_pl = _realized_pl(transaction, holding)
         if line_realized_pl is None:
             continue
-        quantity = _decimal_or_zero(transaction.quantity)
-        average_cost = _transaction_average_cost_before(transaction, holding)
         realized_pl += line_realized_pl
-        cost_basis += average_cost * quantity
+        cost_basis += _transaction_cost_basis(transaction, holding)
 
     return realized_pl, cost_basis
 
@@ -196,8 +201,7 @@ def _realized_pl(transaction, holding):
     quantity = _decimal_or_zero(transaction.quantity)
     unit_price = _decimal_or_zero(transaction.price)
     average_cost = _transaction_average_cost_before(transaction, holding)
-    fees = _decimal_or_zero(transaction.fees)
-    return (unit_price - average_cost) * quantity - fees
+    return (unit_price - average_cost) * quantity
 
 
 def _transaction_average_cost_before(transaction, holding):
@@ -205,6 +209,12 @@ def _transaction_average_cost_before(transaction, holding):
     if average_cost_before is not None:
         return _decimal_or_zero(average_cost_before)
     return _decimal_or_zero(holding.average_cost)
+
+
+def _transaction_cost_basis(transaction, holding):
+    quantity = _decimal_or_zero(transaction.quantity)
+    average_cost = _transaction_average_cost_before(transaction, holding)
+    return average_cost * quantity
 
 
 def _create_transaction_line(

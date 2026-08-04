@@ -300,10 +300,13 @@ class TransactionHistoryEndpointTest(unittest.TestCase):
         self.assertEqual(body["items"][0]["executed_unit_price"], 420.0)
         self.assertEqual(body["items"][0]["executed_price"], 420.0)
         self.assertEqual(body["items"][0]["realized_pl"], 20.0)
-        self.assertEqual(body["items"][1]["realized_pl"], 135.0)
+        self.assertEqual(body["items"][0]["realized_pl_percent"], 5.0)
+        self.assertEqual(body["items"][1]["realized_pl"], 150.0)
+        self.assertEqual(body["items"][1]["realized_pl_percent"], 50.0)
         self.assertIsNone(body["items"][2]["realized_pl"])
-        self.assertEqual(body["totals"]["realized_pl"], 155.0)
-        self.assertEqual(body["totals"]["realized_pl_percent"], 22.142857142857142)
+        self.assertIsNone(body["items"][2]["realized_pl_percent"])
+        self.assertEqual(body["totals"]["realized_pl"], 170.0)
+        self.assertEqual(body["totals"]["realized_pl_percent"], 24.285714285714285)
         self.assertEqual(body["totals"]["currency"], "USD")
         self.assertEqual(
             body["pagination"],
@@ -324,8 +327,9 @@ class TransactionHistoryEndpointTest(unittest.TestCase):
         body = response.get_json()
         self.assertEqual(len(body["items"]), 1)
         self.assertEqual(body["items"][0]["symbol"], "AAPL")
-        self.assertEqual(body["items"][0]["realized_pl"], 135.0)
-        self.assertEqual(body["totals"]["realized_pl"], 135.0)
+        self.assertEqual(body["items"][0]["realized_pl"], 150.0)
+        self.assertEqual(body["items"][0]["realized_pl_percent"], 50.0)
+        self.assertEqual(body["totals"]["realized_pl"], 150.0)
 
     def test_get_transactions_paginates_filtered_rows(self):
         response = self._get_history({"page": 2, "per_page": 2})
