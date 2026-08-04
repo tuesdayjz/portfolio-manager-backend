@@ -893,15 +893,15 @@ paths:
       - portfolio
   /api/v1/portfolios/performance:
     get:
-      description: '取引履歴から日付ごとの保有残高を復元し、`asset_data_history` または
+      description: '取引履歴から日付ごとの保有残高を復元し、`asset_data_history` の
 
-        Yahoo Finance の価格データで評価額と含み損益を計算する想定。
+        close price で日次の評価額を組み立てる。`today` は今日の close price と
 
-        `today` は今日の close price と前日の close price の差分で計算する。
+        前日の close price の差分で計算する。各期間の return は、今日の
 
-        各期間の return は、今日の close price と対象期間の起点 close price
+        close price と対象期間の起点 close price（例: `1w` なら 1 週間前）
 
-        （例: `1w` なら 1 週間前）との差分で計算する。'
+        との差分で計算する。'
       parameters:
       - in: query
         name: start_date
@@ -950,8 +950,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/PerformanceGraph'
           description: OK
-        '400':
-          description: start_date must be before or equal to end_date
         '404':
           description: The specified portfolio does not exist
         '422':

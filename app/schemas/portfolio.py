@@ -206,6 +206,9 @@ class PerformanceMetricsSchema(Schema):
     period_return = fields.Nested(
         PerformanceChangeSchema,
         required=True,
+        # `return` は予約語でフィールド名にできないため、入出力のキーと
+        # 読み取り元の属性名の両方を明示する。
+        attribute="return",
         data_key="return",
         metadata={
             "description": "`range`（または start_date / end_date）で指定した"

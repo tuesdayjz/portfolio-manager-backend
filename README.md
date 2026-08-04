@@ -177,6 +177,13 @@ portfolio 作成 API をテストする場合:
 .venv/bin/python -m unittest tests.test_portfolio_create
 ```
 
+portfolio の read API をまとめてテストする場合:
+
+```bash
+.venv/bin/python -m unittest tests.test_portfolio_summary tests.test_portfolio_holdings \
+    tests.test_portfolio_allocation tests.test_portfolio_performance
+```
+
 Supabase への接続と、全テーブルへの read 権限を確認する場合:
 
 ```bash
@@ -355,13 +362,19 @@ holding 件数を `holdings_count` として `value` の降順で返す。cash h
 限定し、Yahoo Finance の sector が取れない銘柄は集計から除く。市場価格と FX が
 取れない holding も除外する。`as_of` は価格を取得した時刻。
 
-`/performance` は `start_date`, `end_date`, `range`, `interval` を取る。
-`range` は `1d` / `1w` / `1m` / `3m` / `YTD` / `1y` / `all`、
-`interval` の既定値は `1d`。レスポンスは `return_1d`, `return_1w`,
-`return_1m`, `return_3m`, `return_YTD`, `return_1y`, `return_total` を
-それぞれ `{ amount, percent }` で返す。`today` は今日の close price と
-前日の close price の差分で計算し、各期間の return は今日の close price と
-対象期間の起点 close price（例: `1w` なら 1 週間前）の差分で計算する。
+`GET /portfolios/performance` は推移グラフを USD 建てで返す。`start_date`,
+`end_date`, `range`, `interval` を取る。`range` は `1d` / `1w` / `1m` / `3m` /
+`YTD` / `1y` / `all`（既定値 `all`）、`interval` は `1d` / `1wk` / `1mo`
+（既定値 `1d`）。日付を指定した場合はそちらが優先され、レスポンスの `range` は
+`null` になる。日次の評価額は `asset_data_history` の close price から組み立て、
+各日の保有数量は取引履歴を現在の holdings から差し戻して復元する。cash holding は
+期間中一定額として扱い、過去の FX は保存していないため現在のレートで換算する。
+レスポンスは `return_1d`, `return_1w`, `return_1m`, `return_3m`, `return_YTD`,
+`return_1y`, `return_total` をそれぞれ `{ amount, percent }` で返す。`today` は
+今日の close price と前日の close price の差分で計算し、各期間の return は今日の
+close price と対象期間の起点 close price（例: `1w` なら 1 週間前）の差分で計算する。
+評価額の系列は `range` に関わらず運用開始日（最初の取引日）から作るので、
+表示期間を絞っても `return_total` は変わらない。
 
 `/transactions` の絞り込みは `transaction_type`, `asset_type`（既定値
 `all`）, `start_date`, `end_date`。`asset_id` と `search` は受け取らない。
@@ -416,7 +429,9 @@ app/
 ├── auth.py        Supabase access token を検証し g.current_user_id を設定する
 ├── enums.py       TransactionType / Interval
 ├── services/
+│   ├── common.py      service 共通の定数・認証ユーザー解決・Decimal 変換
 │   ├── market_data.py Yahoo Finance から価格・FX・sector を取得する
+│   ├── performance.py 推移グラフ（評価額の系列と期間別 return）の business logic
 │   ├── portfolio.py   portfolio / summary / holdings / allocation の business logic
 │   └── supabase.py    Flask app.config から Supabase client を作成する
 └── config.py      設定（OpenAPI / Supabase 設定を含む）
@@ -428,6 +443,7 @@ tests/
 ├── test_portfolio_allocation.py
 ├── test_portfolio_create.py
 ├── test_portfolio_holdings.py
+├── test_portfolio_performance.py
 ├── test_portfolio_summary.py
 └── database_connection/
     ├── helpers.py
@@ -442,7 +458,7 @@ scripts/
 
 ### 未実装
 
-portfolio performance、assets、transactions の実 API 処理。
-summary / holdings / allocation の read API、Supabase Auth token 検証、
+assets、transactions の実 API 処理。
+summary / holdings / allocation / performance の read API、Supabase Auth token 検証、
 Yahoo Finance 価格・FX・sector 取得、
 SQLAlchemy 接続、DB migration 管理は実装済み。
