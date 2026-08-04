@@ -41,7 +41,9 @@ class FakeMarketData:
 
 
 class TransactionCreateEndpointTest(unittest.TestCase):
-    """取引作成の holdings 更新・平均取得単価の再計算・oversell 拒否を確認する。"""
+    """取引作成の holdings 更新・平均取得単価の再計算・oversell/insufficient funds 拒否を確認する。"""
+
+    INITIAL_CASH_BALANCE = decimal.Decimal("1000000")
 
     def setUp(self):
         FakeMarketData.prices = {
@@ -156,6 +158,9 @@ class TransactionCreateEndpointTest(unittest.TestCase):
 
     def _seed_reference_data(self):
         now = datetime.datetime.now(datetime.timezone.utc)
+        usd_currency_id = uuid.uuid4()
+        cash_asset_type_id = uuid.uuid4()
+        cash_asset_id = uuid.uuid4()
         db.session.add_all(
             [
                 Users(
@@ -164,14 +169,29 @@ class TransactionCreateEndpointTest(unittest.TestCase):
                     created_at=now,
                     updated_at=now,
                 ),
-                Currency(id=uuid.uuid4(), currency="USD", symbol="$"),
+                Currency(id=usd_currency_id, currency="USD", symbol="$"),
                 Currency(id=uuid.uuid4(), currency="JPY", symbol="¥"),
                 AssetType(id=uuid.uuid4(), asset_type="stock"),
-                AssetType(id=uuid.uuid4(), asset_type="cash"),
+                AssetType(id=cash_asset_type_id, asset_type="cash"),
                 Portfolio(
                     id=self.portfolio_id,
                     user_id=self.user_id,
                     created_at=now,
+                    updated_at=now,
+                ),
+                AssetMaster(
+                    id=cash_asset_id,
+                    ticker="CASH-USD",
+                    name="Cash USD",
+                    asset_type_id=cash_asset_type_id,
+                    currency_id=usd_currency_id,
+                ),
+                Holdings(
+                    id=uuid.uuid4(),
+                    portfolio_id=self.portfolio_id,
+                    asset_id=cash_asset_id,
+                    quantity=decimal.Decimal("1"),
+                    average_cost=self.INITIAL_CASH_BALANCE,
                     updated_at=now,
                 ),
             ]
@@ -283,7 +303,9 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         self.assertEqual(float(holding.average_cost), 150.0)
         cash_holding = self._holding_for_ticker("CASH-USD")
         self.assertEqual(float(cash_holding.quantity), 1.0)
-        self.assertEqual(float(cash_holding.average_cost), -1500.0)
+        self.assertEqual(
+            float(cash_holding.average_cost), float(self.INITIAL_CASH_BALANCE - 1500)
+        )
         transaction = Transactions.query.one()
         self.assertIsNone(transaction.average_cost_before)
 
@@ -297,7 +319,9 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         self.assertEqual(float(holding.quantity), 2.0)
         self.assertEqual(float(holding.average_cost), 3000.0)
         cash_holding = self._holding_for_ticker("CASH-USD")
-        self.assertEqual(float(cash_holding.average_cost), -60.0)
+        self.assertEqual(
+            float(cash_holding.average_cost), float(self.INITIAL_CASH_BALANCE - 60)
+        )
         self.assertEqual(AssetMaster.query.filter_by(ticker="CASH-JPY").count(), 0)
 
     def test_create_transaction_buy_existing_holding_recomputes_average_cost(self):
@@ -312,7 +336,9 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         self.assertEqual(float(holding.quantity), 20.0)
         self.assertEqual(float(holding.average_cost), 175.0)
         cash_holding = self._holding_for_ticker("CASH-USD")
-        self.assertEqual(float(cash_holding.average_cost), -3500.0)
+        self.assertEqual(
+            float(cash_holding.average_cost), float(self.INITIAL_CASH_BALANCE - 3500)
+        )
         self.assertEqual(Transactions.query.count(), 2)
         second_buy = Transactions.query.filter_by(price=decimal.Decimal("200")).one()
         self.assertEqual(float(second_buy.average_cost_before), 150.0)
@@ -327,7 +353,9 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         self.assertEqual(float(holding.quantity), 6.0)
         self.assertEqual(float(holding.average_cost), 150.0)
         cash_holding = self._holding_for_ticker("CASH-USD")
-        self.assertEqual(float(cash_holding.average_cost), -900.0)
+        self.assertEqual(
+            float(cash_holding.average_cost), float(self.INITIAL_CASH_BALANCE - 900)
+        )
         sell = Transactions.query.filter_by(transaction_type="sell").one()
         self.assertEqual(float(sell.average_cost_before), 150.0)
 
@@ -341,7 +369,24 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         self.assertEqual(float(holding.quantity), 5.0)
         self.assertEqual(Transactions.query.count(), 1)
         cash_holding = self._holding_for_ticker("CASH-USD")
-        self.assertEqual(float(cash_holding.average_cost), -750.0)
+        self.assertEqual(
+            float(cash_holding.average_cost), float(self.INITIAL_CASH_BALANCE - 750)
+        )
+
+    def test_create_transaction_buy_rejects_insufficient_funds(self):
+        cash_holding = self._holding_for_ticker("CASH-USD")
+        cash_holding.average_cost = decimal.Decimal("100")
+        db.session.commit()
+
+        response = self._post_transaction(self._buy_payload("AAPL", "Apple Inc.", 10))
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Holdings.query.filter(
+            Holdings.asset.has(AssetMaster.ticker == "AAPL")
+        ).count(), 0)
+        self.assertEqual(Transactions.query.count(), 0)
+        cash_holding = self._holding_for_ticker("CASH-USD")
+        self.assertEqual(float(cash_holding.average_cost), 100.0)
 
     def test_create_transactions_batch_creates_all(self):
         response = self._post_batch(
@@ -359,7 +404,9 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         self.assertEqual(Holdings.query.count(), 3)
         self.assertEqual(Transactions.query.count(), 2)
         cash_holding = self._holding_for_ticker("CASH-USD")
-        self.assertEqual(float(cash_holding.average_cost), -3000.0)
+        self.assertEqual(
+            float(cash_holding.average_cost), float(self.INITIAL_CASH_BALANCE - 3000)
+        )
 
     def test_create_transactions_batch_rolls_back_all_on_failure(self):
         response = self._post_batch(
@@ -373,9 +420,13 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(AssetMaster.query.count(), 0)
-        self.assertEqual(Holdings.query.count(), 0)
+        # Only the pre-seeded CASH-USD asset/holding survive; the AAPL leg and
+        # cash update are rolled back along with the failed MSFT sell.
+        self.assertEqual(AssetMaster.query.count(), 1)
+        self.assertEqual(Holdings.query.count(), 1)
         self.assertEqual(Transactions.query.count(), 0)
+        cash_holding = self._holding_for_ticker("CASH-USD")
+        self.assertEqual(float(cash_holding.average_cost), float(self.INITIAL_CASH_BALANCE))
 
 
 if __name__ == "__main__":
