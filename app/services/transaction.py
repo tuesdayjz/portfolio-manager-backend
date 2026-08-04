@@ -4,7 +4,7 @@ import datetime
 import decimal
 import uuid
 
-from flask import g
+from flask import current_app, g
 from flask_smorest import abort
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -13,6 +13,7 @@ from werkzeug.exceptions import HTTPException
 from app.enums import TransactionType
 from app.extensions import db
 from app.models import AssetMaster, AssetType, Currency, Holdings, Portfolio, Transactions
+from app.services.asset_history import schedule_asset_history_backfill
 from app.services.market_data import YahooFinanceMarketData
 
 PORTFOLIO_NOT_FOUND_MESSAGE = "The specified portfolio does not exist"
@@ -37,9 +38,12 @@ def create_transaction(payload, market_data=None):
 
     portfolio = _portfolio_for_current_user()
     market_data = market_data or YahooFinanceMarketData()
+    touched_asset_ids = set()
 
     try:
-        result = _create_transaction_line(portfolio, payload, market_data, {})
+        result = _create_transaction_line(
+            portfolio, payload, market_data, {}, touched_asset_ids
+        )
         db.session.commit()
     except HTTPException:
         db.session.rollback()
@@ -48,6 +52,7 @@ def create_transaction(payload, market_data=None):
         db.session.rollback()
         abort(500, message="Could not create transaction.")
 
+    schedule_asset_history_backfill(current_app._get_current_object(), touched_asset_ids)
     return result
 
 
@@ -57,10 +62,13 @@ def create_transactions_batch(payload, market_data=None):
     portfolio = _portfolio_for_current_user()
     market_data = market_data or YahooFinanceMarketData()
     holdings_cache = {}
+    touched_asset_ids = set()
 
     try:
         results = [
-            _create_transaction_line(portfolio, item, market_data, holdings_cache)
+            _create_transaction_line(
+                portfolio, item, market_data, holdings_cache, touched_asset_ids
+            )
             for item in payload["transactions"]
         ]
         db.session.commit()
@@ -71,11 +79,15 @@ def create_transactions_batch(payload, market_data=None):
         db.session.rollback()
         abort(500, message="Could not create transactions.")
 
+    schedule_asset_history_backfill(current_app._get_current_object(), touched_asset_ids)
     return results
 
 
-def _create_transaction_line(portfolio, item, market_data, holdings_cache):
+def _create_transaction_line(
+    portfolio, item, market_data, holdings_cache, touched_asset_ids
+):
     asset = _get_or_create_asset(item["ticker"], item["name"], market_data)
+    touched_asset_ids.add(asset.id)
 
     price = _decimal_or_none(market_data.latest_price(asset.ticker))
     if price is None:
