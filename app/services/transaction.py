@@ -19,6 +19,7 @@ from app.services.market_data import YahooFinanceMarketData
 
 PORTFOLIO_NOT_FOUND_MESSAGE = "The specified portfolio does not exist"
 OVERSELL_MESSAGE = "Cannot sell more than current holding"
+INSUFFICIENT_CASH_MESSAGE = "Cannot buy more than current cash balance"
 PRICE_UNAVAILABLE_MESSAGE = "Unable to fetch a live price for this ticker."
 FX_UNAVAILABLE_MESSAGE = "Unable to fetch an FX rate for this ticker currency."
 UNSUPPORTED_ASSET_MESSAGE = "Unable to register this ticker."
@@ -80,11 +81,29 @@ def create_transaction(payload, market_data=None):
     portfolio = _portfolio_for_current_user()
     market_data = market_data or YahooFinanceMarketData()
     touched_asset_ids = set()
+    today = _utc_today()
+    historical = _requires_historical_replay([payload], today)
 
     try:
-        result = _create_transaction_line(
-            portfolio, payload, market_data, {}, touched_asset_ids
+        starting_cash = (
+            _starting_cash_baseline(portfolio.id, market_data, today)
+            if historical
+            else None
         )
+        result = _create_transaction_line(
+            portfolio,
+            payload,
+            market_data,
+            {},
+            touched_asset_ids,
+            today=today,
+            apply_incremental=not historical,
+        )
+        if historical:
+            db.session.flush()
+            _replay_portfolio_transactions(
+                portfolio.id, market_data, today, starting_cash
+            )
         db.session.commit()
     except HTTPException:
         db.session.rollback()
@@ -104,14 +123,33 @@ def create_transactions_batch(payload, market_data=None):
     market_data = market_data or YahooFinanceMarketData()
     holdings_cache = {}
     touched_asset_ids = set()
+    today = _utc_today()
+    items = payload["transactions"]
+    historical = _requires_historical_replay(items, today)
 
     try:
+        starting_cash = (
+            _starting_cash_baseline(portfolio.id, market_data, today)
+            if historical
+            else None
+        )
         results = [
             _create_transaction_line(
-                portfolio, item, market_data, holdings_cache, touched_asset_ids
+                portfolio,
+                item,
+                market_data,
+                holdings_cache,
+                touched_asset_ids,
+                today=today,
+                apply_incremental=not historical,
             )
-            for item in payload["transactions"]
+            for item in items
         ]
+        if historical:
+            db.session.flush()
+            _replay_portfolio_transactions(
+                portfolio.id, market_data, today, starting_cash
+            )
         db.session.commit()
     except HTTPException:
         db.session.rollback()
@@ -218,12 +256,23 @@ def _transaction_cost_basis(transaction, holding):
 
 
 def _create_transaction_line(
-    portfolio, item, market_data, holdings_cache, touched_asset_ids
+    portfolio,
+    item,
+    market_data,
+    holdings_cache,
+    touched_asset_ids,
+    *,
+    today,
+    apply_incremental,
 ):
     asset = _get_or_create_asset(item["ticker"], item["name"], market_data)
     touched_asset_ids.add(asset.id)
 
-    price = _decimal_or_none(market_data.latest_price(asset.ticker))
+    trade_date = item.get("trade_date") or today
+    if trade_date > today:
+        abort(400, message="trade_date cannot be later than today.")
+
+    price = _item_price(item, asset, market_data, today, trade_date)
     if price is None:
         abort(502, message=PRICE_UNAVAILABLE_MESSAGE)
 
@@ -235,36 +284,40 @@ def _create_transaction_line(
     transaction_type = item["transaction_type"]
     cash_holding = _get_or_create_usd_cash_holding(portfolio.id, holdings_cache)
     cash_balance = _decimal_or_zero(cash_holding.average_cost)
-    fx_rate = _decimal_or_none(market_data.fx_to_usd(_asset_currency(asset)))
-    if fx_rate is None:
-        abort(502, message=FX_UNAVAILABLE_MESSAGE)
-    trade_amount_usd = quantity * price * fx_rate
-
-    if transaction_type is TransactionType.SELL:
-        if quantity > existing_quantity:
-            abort(400, message=OVERSELL_MESSAGE)
-        holding.quantity = existing_quantity - quantity
-        cash_holding.average_cost = cash_balance + trade_amount_usd
-    else:
-        new_quantity = existing_quantity + quantity
-        holding.average_cost = (
-            existing_quantity * existing_average_cost + quantity * price
-        ) / new_quantity
-        holding.quantity = new_quantity
-        cash_holding.average_cost = cash_balance - trade_amount_usd
 
     now = datetime.datetime.now(datetime.timezone.utc)
-    holding.updated_at = now
-    cash_holding.updated_at = now
+    if apply_incremental:
+        fx_rate = _fx_to_usd_for_trade(
+            market_data, _asset_currency(asset), trade_date, today
+        )
+        trade_amount_usd = quantity * price * fx_rate
+
+        if transaction_type is TransactionType.SELL:
+            if quantity > existing_quantity:
+                abort(400, message=OVERSELL_MESSAGE)
+            holding.quantity = existing_quantity - quantity
+            cash_holding.average_cost = cash_balance + trade_amount_usd
+        else:
+            if trade_amount_usd > cash_balance:
+                abort(400, message=INSUFFICIENT_CASH_MESSAGE)
+            new_quantity = existing_quantity + quantity
+            holding.average_cost = (
+                existing_quantity * existing_average_cost + quantity * price
+            ) / new_quantity
+            holding.quantity = new_quantity
+            cash_holding.average_cost = cash_balance - trade_amount_usd
+
+        holding.updated_at = now
+        cash_holding.updated_at = now
 
     db.session.add(
         Transactions(
             id=uuid.uuid4(),
             holding_id=holding.id,
-            trade_date=now.date(),
+            trade_date=trade_date,
             quantity=quantity,
             price=price,
-            average_cost_before=average_cost_before,
+            average_cost_before=average_cost_before if apply_incremental else None,
             transaction_type=transaction_type.value,
         )
     )
@@ -272,13 +325,133 @@ def _create_transaction_line(
     asset_type = getattr(getattr(asset, "asset_type", None), "asset_type", None)
 
     return {
-        "date": now,
+        "date": datetime.datetime.combine(
+            trade_date, datetime.time.min, tzinfo=datetime.timezone.utc
+        ),
         "symbol": asset.ticker,
         "name": asset.name,
         "asset_type": asset_type,
         "executed_price": float(quantity * price),
         "executed_unit_price": float(price),
     }
+
+
+def _item_price(item, asset, market_data, today, trade_date):
+    if trade_date == today:
+        return _decimal_or_none(market_data.latest_price(asset.ticker))
+
+    price = item.get("price")
+    if price is not None:
+        return _decimal_or_none(price)
+    return _decimal_or_none(market_data.latest_price(asset.ticker))
+
+
+def _requires_historical_replay(items, today):
+    for item in items:
+        trade_date = item.get("trade_date") or today
+        if trade_date > today:
+            abort(400, message="trade_date cannot be later than today.")
+        if trade_date < today:
+            return True
+    return False
+
+
+def _replay_portfolio_transactions(portfolio_id, market_data, today, starting_cash):
+    rows = _portfolio_transaction_timeline(portfolio_id)
+    cash_balance = decimal.Decimal(str(starting_cash))
+    states = {}
+    now = datetime.datetime.now(datetime.timezone.utc)
+
+    for transaction, holding, asset in rows:
+        asset_id = holding.asset_id
+        state = states.setdefault(
+            asset_id,
+            {
+                "holding": holding,
+                "quantity": decimal.Decimal("0"),
+                "average_cost": None,
+            },
+        )
+
+        quantity = _decimal_or_zero(transaction.quantity)
+        price = _decimal_or_zero(transaction.price)
+        average_cost_before = state["average_cost"]
+        transaction.average_cost_before = average_cost_before
+
+        fx_rate = _fx_to_usd_for_trade(
+            market_data, _asset_currency(asset), transaction.trade_date, today
+        )
+        trade_amount_usd = quantity * price * fx_rate
+
+        if transaction.transaction_type == TransactionType.SELL.value:
+            if quantity > state["quantity"]:
+                abort(400, message=OVERSELL_MESSAGE)
+            state["quantity"] -= quantity
+            cash_balance += trade_amount_usd
+        else:
+            if trade_amount_usd > cash_balance:
+                abort(400, message=INSUFFICIENT_CASH_MESSAGE)
+            new_quantity = state["quantity"] + quantity
+            previous_average_cost = _decimal_or_zero(average_cost_before)
+            state["average_cost"] = (
+                state["quantity"] * previous_average_cost + quantity * price
+            ) / new_quantity
+            state["quantity"] = new_quantity
+            cash_balance -= trade_amount_usd
+
+    for state in states.values():
+        holding = state["holding"]
+        holding.quantity = state["quantity"]
+        holding.average_cost = state["average_cost"]
+        holding.updated_at = now
+
+    cash_holding = _get_or_create_usd_cash_holding(portfolio_id, {})
+    cash_holding.quantity = decimal.Decimal("1")
+    cash_holding.average_cost = cash_balance
+    cash_holding.updated_at = now
+
+
+def _portfolio_transaction_timeline(portfolio_id):
+    return db.session.execute(
+        select(Transactions, Holdings, AssetMaster)
+        .join(Holdings, Transactions.holding_id == Holdings.id)
+        .join(AssetMaster, Holdings.asset_id == AssetMaster.id)
+        .where(Holdings.portfolio_id == portfolio_id)
+        .order_by(Transactions.trade_date.asc(), Transactions.created_at.asc())
+    ).all()
+
+
+def _starting_cash_baseline(portfolio_id, market_data, today):
+    cash_holding = _get_or_create_usd_cash_holding(portfolio_id, {})
+    cash_balance = _decimal_or_zero(cash_holding.average_cost)
+
+    for transaction, _holding, asset in _portfolio_transaction_timeline(portfolio_id):
+        quantity = _decimal_or_zero(transaction.quantity)
+        price = _decimal_or_zero(transaction.price)
+        fx_rate = _fx_to_usd_for_trade(
+            market_data, _asset_currency(asset), transaction.trade_date, today
+        )
+        trade_amount_usd = quantity * price * fx_rate
+        if transaction.transaction_type == TransactionType.SELL.value:
+            cash_balance -= trade_amount_usd
+        else:
+            cash_balance += trade_amount_usd
+
+    return cash_balance
+
+
+def _fx_to_usd_for_trade(market_data, currency, trade_date, today):
+    if trade_date < today and hasattr(market_data, "fx_to_usd_on"):
+        fx_rate = _decimal_or_none(market_data.fx_to_usd_on(currency, trade_date))
+    else:
+        fx_rate = _decimal_or_none(market_data.fx_to_usd(currency))
+    if fx_rate is None:
+        abort(502, message=FX_UNAVAILABLE_MESSAGE)
+    return fx_rate
+
+
+def _utc_today():
+    return datetime.datetime.now(datetime.timezone.utc).date()
 
 
 def _get_or_create_holding(portfolio_id, asset_id, holdings_cache):

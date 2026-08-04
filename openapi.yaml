@@ -649,11 +649,21 @@ components:
           - long
           example: long
           type: string
-        quantity:
-          example: 5.4
+        trade_date:
+          description: Trade date. Defaults to backend today when omitted.
+          example: '2026-05-26'
+          format: date
+          type: string
+        price:
+          description: Executed unit price for historical trades. Same-day trades use market price.
+          example: 2980.5
           exclusiveMinimum: true
           minimum: 0.0
           type: number
+        quantity:
+          example: 5
+          minimum: 1
+          type: integer
         ticker:
           description: Market data ticker
           example: 7203.T

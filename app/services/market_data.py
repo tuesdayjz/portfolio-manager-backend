@@ -9,6 +9,7 @@ class YahooFinanceMarketData:
     def __init__(self):
         self._prices = {}
         self._fx_rates = {}
+        self._historical_fx_rates = {}
         self._sectors = {}
         self._asset_meta = {}
 
@@ -27,6 +28,18 @@ class YahooFinanceMarketData:
         if currency not in self._fx_rates:
             self._fx_rates[currency] = self.latest_price(f"{currency}USD=X")
         return self._fx_rates[currency]
+
+    def fx_to_usd_on(self, currency, date):
+        currency = (currency or "USD").strip().upper()
+        if currency == "USD":
+            return Decimal("1")
+
+        key = (currency, date)
+        if key not in self._historical_fx_rates:
+            self._historical_fx_rates[key] = self._fetch_historical_fx_rate(
+                currency, date
+            )
+        return self._historical_fx_rates[key]
 
     def sector(self, ticker):
         ticker = (ticker or "").strip()
@@ -75,6 +88,32 @@ class YahooFinanceMarketData:
 
         try:
             closes = history["Close"].dropna()
+        except Exception:
+            return None
+
+        if closes.empty:
+            return None
+        return _decimal_or_none(closes.iloc[-1])
+
+    def _fetch_historical_fx_rate(self, currency, date):
+        try:
+            import datetime
+            import yfinance as yf
+
+            end = date + datetime.timedelta(days=1)
+            start = date - datetime.timedelta(days=10)
+            history = yf.Ticker(f"{currency}USD=X").history(
+                start=start,
+                end=end,
+                interval="1d",
+                auto_adjust=False,
+            )
+        except Exception:
+            return None
+
+        try:
+            closes = history["Close"].dropna()
+            closes = closes[closes.index.date <= date]
         except Exception:
             return None
 
