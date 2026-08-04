@@ -10,6 +10,7 @@ class YahooFinanceMarketData:
         self._prices = {}
         self._fx_rates = {}
         self._historical_fx_rates = {}
+        self._asset_existence = {}
         self._sectors = {}
         self._asset_meta = {}
 
@@ -58,6 +59,19 @@ class YahooFinanceMarketData:
         if ticker not in self._asset_meta:
             self._asset_meta[ticker] = self._fetch_asset_meta(ticker)
         return self._asset_meta[ticker]
+
+    def asset_exists_on_or_before(self, ticker, date):
+        """Return whether Yahoo has a close for this ticker on or before `date`."""
+
+        ticker = (ticker or "").strip()
+        if not ticker:
+            return False
+        key = (ticker, date)
+        if key not in self._asset_existence:
+            self._asset_existence[key] = self._fetch_asset_exists_on_or_before(
+                ticker, date
+            )
+        return self._asset_existence[key]
 
     def _fetch_asset_meta(self, ticker):
         try:
@@ -120,6 +134,30 @@ class YahooFinanceMarketData:
         if closes.empty:
             return None
         return _decimal_or_none(closes.iloc[-1])
+
+    def _fetch_asset_exists_on_or_before(self, ticker, date):
+        try:
+            import datetime
+            import yfinance as yf
+
+            end = date + datetime.timedelta(days=1)
+            start = date - datetime.timedelta(days=14)
+            history = yf.Ticker(ticker).history(
+                start=start,
+                end=end,
+                interval="1d",
+                auto_adjust=False,
+            )
+        except Exception:
+            return False
+
+        try:
+            closes = history["Close"].dropna()
+            closes = closes[closes.index.date <= date]
+        except Exception:
+            return False
+
+        return not closes.empty
 
     def _fetch_sector(self, ticker):
         try:

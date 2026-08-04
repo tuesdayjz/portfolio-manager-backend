@@ -28,8 +28,10 @@ class FakeMarketData:
         "AAPL": {"quote_type": "EQUITY", "currency": "USD"},
         "MSFT": {"quote_type": "EQUITY", "currency": "USD"},
         "7203.T": {"quote_type": "EQUITY", "currency": "JPY"},
+        "IPO": {"quote_type": "EQUITY", "currency": "USD"},
         "UNKNOWNX": None,
     }
+    listed_from = {}
 
     def latest_price(self, ticker):
         return self.prices.get(ticker)
@@ -44,6 +46,10 @@ class FakeMarketData:
     def asset_meta(self, ticker):
         return self.meta.get(ticker)
 
+    def asset_exists_on_or_before(self, ticker, date):
+        listed_from = self.listed_from.get(ticker)
+        return listed_from is None or listed_from <= date
+
 
 class TransactionCreateEndpointTest(unittest.TestCase):
     """取引作成の holdings 更新・平均取得単価の再計算・oversell 拒否を確認する。"""
@@ -53,9 +59,11 @@ class TransactionCreateEndpointTest(unittest.TestCase):
             "AAPL": decimal.Decimal("150"),
             "MSFT": decimal.Decimal("300"),
             "7203.T": decimal.Decimal("3000"),
+            "IPO": decimal.Decimal("50"),
         }
         FakeMarketData.fx_rates = {"JPY": decimal.Decimal("0.01"), "USD": decimal.Decimal("1")}
         FakeMarketData.historical_fx_rates = {}
+        FakeMarketData.listed_from = {}
 
         self.app = create_app("testing")
         self.client = self.app.test_client()
@@ -139,6 +147,7 @@ class TransactionCreateEndpointTest(unittest.TestCase):
                 price NUMERIC NOT NULL,
                 fees NUMERIC NOT NULL DEFAULT 0,
                 average_cost_before NUMERIC,
+                cash_balance_before NUMERIC,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 transaction_type TEXT NOT NULL
             )
@@ -316,7 +325,8 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         self.assertEqual(float(cash_holding.quantity), 1.0)
         self.assertEqual(float(cash_holding.average_cost), 8500.0)
         transaction = Transactions.query.one()
-        self.assertIsNone(transaction.average_cost_before)
+        self.assertEqual(float(transaction.average_cost_before), 0.0)
+        self.assertEqual(float(transaction.cash_balance_before), 10000.0)
 
     def test_create_transaction_buy_jpy_asset_updates_usd_cash(self):
         response = self._post_transaction(
@@ -347,6 +357,7 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         self.assertEqual(Transactions.query.count(), 2)
         second_buy = Transactions.query.filter_by(price=decimal.Decimal("200")).one()
         self.assertEqual(float(second_buy.average_cost_before), 150.0)
+        self.assertEqual(float(second_buy.cash_balance_before), 8500.0)
 
     def test_create_transaction_sell_partial_reduces_quantity(self):
         self._post_transaction(self._buy_payload("AAPL", "Apple Inc.", 10))
@@ -361,6 +372,7 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         self.assertEqual(float(cash_holding.average_cost), 9100.0)
         sell = Transactions.query.filter_by(transaction_type="sell").one()
         self.assertEqual(float(sell.average_cost_before), 150.0)
+        self.assertEqual(float(sell.cash_balance_before), 8500.0)
 
     def test_create_transaction_sell_more_than_holding_returns_400(self):
         self._post_transaction(self._buy_payload("AAPL", "Apple Inc.", 5))
@@ -402,7 +414,7 @@ class TransactionCreateEndpointTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
 
-    def test_create_transaction_today_ignores_request_price_and_uses_market_price(self):
+    def test_create_transaction_today_uses_request_price_when_present(self):
         trade_date = datetime.datetime.now(datetime.timezone.utc).date()
         payload = self._buy_payload("AAPL", "Apple Inc.", 2)
         payload["price"] = 125
@@ -412,12 +424,14 @@ class TransactionCreateEndpointTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 201)
         body = response.get_json()
-        self.assertEqual(body["executed_unit_price"], 150.0)
-        self.assertEqual(body["executed_price"], 300.0)
+        self.assertEqual(body["executed_unit_price"], 125.0)
+        self.assertEqual(body["executed_price"], 250.0)
         transaction = Transactions.query.one()
         self.assertEqual(transaction.trade_date, trade_date)
-        self.assertEqual(float(transaction.price), 150.0)
-        self.assertEqual(self._cash_balance(), 9700.0)
+        self.assertEqual(float(transaction.price), 125.0)
+        self.assertEqual(float(transaction.average_cost_before), 0.0)
+        self.assertEqual(float(transaction.cash_balance_before), 10000.0)
+        self.assertEqual(self._cash_balance(), 9750.0)
 
     def test_create_transaction_backdated_buy_replays_later_costs_and_cash(self):
         today = datetime.datetime.now(datetime.timezone.utc).date()
@@ -435,13 +449,72 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         holding = self._holding_for_ticker("AAPL")
         self.assertEqual(float(holding.quantity), 20.0)
-        self.assertEqual(float(holding.average_cost), 125.0)
-        self.assertEqual(self._cash_balance(), 7500.0)
+        self.assertEqual(float(holding.average_cost), 150.0)
+        self.assertEqual(self._cash_balance(), 7000.0)
         later_buy = (
-            Transactions.query.filter_by(price=decimal.Decimal("150"))
+            Transactions.query.filter_by(price=decimal.Decimal("200"))
             .one()
         )
         self.assertEqual(float(later_buy.average_cost_before), 100.0)
+        self.assertEqual(float(later_buy.cash_balance_before), 9000.0)
+        earliest_buy = (
+            Transactions.query.filter_by(price=decimal.Decimal("100"))
+            .one()
+        )
+        self.assertEqual(float(earliest_buy.average_cost_before), 0.0)
+        self.assertEqual(float(earliest_buy.cash_balance_before), 10000.0)
+
+    def test_create_transaction_historical_buy_after_first_buy_replays_later_costs(self):
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        first_buy = self._buy_payload("AAPL", "Apple Inc.", 10)
+        first_buy["price"] = 100
+        first_buy["trade_date"] = (today - datetime.timedelta(days=20)).isoformat()
+        self.assertEqual(self._post_transaction(first_buy).status_code, 201)
+
+        current_buy = self._buy_payload("AAPL", "Apple Inc.", 10)
+        current_buy["price"] = 200
+        self.assertEqual(self._post_transaction(current_buy).status_code, 201)
+
+        middle_buy = self._buy_payload("AAPL", "Apple Inc.", 10)
+        middle_buy["price"] = 120
+        middle_buy["trade_date"] = (today - datetime.timedelta(days=10)).isoformat()
+        response = self._post_transaction(middle_buy)
+
+        self.assertEqual(response.status_code, 201)
+        holding = self._holding_for_ticker("AAPL")
+        self.assertEqual(float(holding.quantity), 30.0)
+        self.assertEqual(float(holding.average_cost), 140.0)
+        self.assertEqual(self._cash_balance(), 5800.0)
+        middle = Transactions.query.filter_by(price=decimal.Decimal("120")).one()
+        self.assertEqual(float(middle.average_cost_before), 100.0)
+        self.assertEqual(float(middle.cash_balance_before), 9000.0)
+        current = Transactions.query.filter_by(price=decimal.Decimal("200")).one()
+        self.assertEqual(float(current.average_cost_before), 110.0)
+        self.assertEqual(float(current.cash_balance_before), 7800.0)
+
+    def test_create_transaction_historical_buy_same_day_as_existing_buy(self):
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        existing_buy = self._buy_payload("AAPL", "Apple Inc.", 10)
+        existing_buy["price"] = 100
+        existing_buy["trade_date"] = (today - datetime.timedelta(days=10)).isoformat()
+        self.assertEqual(self._post_transaction(existing_buy).status_code, 201)
+
+        same_day_buy = self._buy_payload("AAPL", "Apple Inc.", 5)
+        same_day_buy["price"] = 200
+        same_day_buy["trade_date"] = (today - datetime.timedelta(days=10)).isoformat()
+        response = self._post_transaction(same_day_buy)
+
+        self.assertEqual(response.status_code, 201)
+        holding = self._holding_for_ticker("AAPL")
+        self.assertEqual(float(holding.quantity), 15.0)
+        self.assertAlmostEqual(float(holding.average_cost), 133.3333333, places=5)
+        self.assertEqual(self._cash_balance(), 8000.0)
+        existing = Transactions.query.filter_by(price=decimal.Decimal("100")).one()
+        same_day = Transactions.query.filter_by(price=decimal.Decimal("200")).one()
+        self.assertEqual(float(existing.average_cost_before), 0.0)
+        self.assertEqual(float(existing.cash_balance_before), 10000.0)
+        self.assertEqual(float(same_day.average_cost_before), 100.0)
+        self.assertEqual(float(same_day.cash_balance_before), 9000.0)
 
     def test_create_transaction_backdated_sell_replays_later_costs_and_cash(self):
         today = datetime.datetime.now(datetime.timezone.utc).date()
@@ -464,10 +537,98 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         holding = self._holding_for_ticker("AAPL")
         self.assertEqual(float(holding.quantity), 15.0)
-        self.assertAlmostEqual(float(holding.average_cost), 133.3333333, places=5)
-        self.assertEqual(self._cash_balance(), 8100.0)
-        later = Transactions.query.filter_by(price=decimal.Decimal("150")).one()
+        self.assertAlmostEqual(float(holding.average_cost), 166.6666667, places=5)
+        self.assertEqual(self._cash_balance(), 7600.0)
+        later = Transactions.query.filter_by(price=decimal.Decimal("200")).one()
         self.assertEqual(float(later.average_cost_before), 100.0)
+        self.assertEqual(float(later.cash_balance_before), 9600.0)
+
+    def test_create_transaction_historical_sell_after_first_sell_replays_cash(self):
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        first_buy = self._buy_payload("AAPL", "Apple Inc.", 20)
+        first_buy["price"] = 100
+        first_buy["trade_date"] = (today - datetime.timedelta(days=30)).isoformat()
+        self.assertEqual(self._post_transaction(first_buy).status_code, 201)
+
+        first_sell = self._sell_payload("AAPL", "Apple Inc.", 5)
+        first_sell["price"] = 110
+        first_sell["trade_date"] = (today - datetime.timedelta(days=20)).isoformat()
+        self.assertEqual(self._post_transaction(first_sell).status_code, 201)
+
+        current_sell = self._sell_payload("AAPL", "Apple Inc.", 5)
+        self.assertEqual(self._post_transaction(current_sell).status_code, 201)
+
+        middle_sell = self._sell_payload("AAPL", "Apple Inc.", 5)
+        middle_sell["price"] = 120
+        middle_sell["trade_date"] = (today - datetime.timedelta(days=10)).isoformat()
+        response = self._post_transaction(middle_sell)
+
+        self.assertEqual(response.status_code, 201)
+        holding = self._holding_for_ticker("AAPL")
+        self.assertEqual(float(holding.quantity), 5.0)
+        self.assertEqual(float(holding.average_cost), 100.0)
+        self.assertEqual(self._cash_balance(), 9900.0)
+        for sell in Transactions.query.filter_by(transaction_type="sell").all():
+            self.assertEqual(float(sell.average_cost_before), 100.0)
+        middle = Transactions.query.filter_by(price=decimal.Decimal("120")).one()
+        current = Transactions.query.filter_by(price=decimal.Decimal("150")).one()
+        self.assertEqual(float(middle.cash_balance_before), 8550.0)
+        self.assertEqual(float(current.cash_balance_before), 9150.0)
+
+    def test_create_transaction_historical_sell_before_first_sell_replays_later_sells(self):
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        first_buy = self._buy_payload("AAPL", "Apple Inc.", 20)
+        first_buy["price"] = 100
+        first_buy["trade_date"] = (today - datetime.timedelta(days=30)).isoformat()
+        self.assertEqual(self._post_transaction(first_buy).status_code, 201)
+
+        later_sell = self._sell_payload("AAPL", "Apple Inc.", 5)
+        later_sell["price"] = 120
+        later_sell["trade_date"] = (today - datetime.timedelta(days=10)).isoformat()
+        self.assertEqual(self._post_transaction(later_sell).status_code, 201)
+
+        earlier_sell = self._sell_payload("AAPL", "Apple Inc.", 5)
+        earlier_sell["price"] = 110
+        earlier_sell["trade_date"] = (today - datetime.timedelta(days=20)).isoformat()
+        response = self._post_transaction(earlier_sell)
+
+        self.assertEqual(response.status_code, 201)
+        holding = self._holding_for_ticker("AAPL")
+        self.assertEqual(float(holding.quantity), 10.0)
+        self.assertEqual(float(holding.average_cost), 100.0)
+        self.assertEqual(self._cash_balance(), 9150.0)
+        later = Transactions.query.filter_by(price=decimal.Decimal("120")).one()
+        self.assertEqual(float(later.average_cost_before), 100.0)
+        self.assertEqual(float(later.cash_balance_before), 8550.0)
+
+    def test_create_transaction_historical_sell_same_day_as_existing_sell(self):
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        first_buy = self._buy_payload("AAPL", "Apple Inc.", 20)
+        first_buy["price"] = 100
+        first_buy["trade_date"] = (today - datetime.timedelta(days=20)).isoformat()
+        self.assertEqual(self._post_transaction(first_buy).status_code, 201)
+
+        existing_sell = self._sell_payload("AAPL", "Apple Inc.", 5)
+        existing_sell["price"] = 110
+        existing_sell["trade_date"] = (today - datetime.timedelta(days=10)).isoformat()
+        self.assertEqual(self._post_transaction(existing_sell).status_code, 201)
+
+        same_day_sell = self._sell_payload("AAPL", "Apple Inc.", 5)
+        same_day_sell["price"] = 120
+        same_day_sell["trade_date"] = (today - datetime.timedelta(days=10)).isoformat()
+        response = self._post_transaction(same_day_sell)
+
+        self.assertEqual(response.status_code, 201)
+        holding = self._holding_for_ticker("AAPL")
+        self.assertEqual(float(holding.quantity), 10.0)
+        self.assertEqual(float(holding.average_cost), 100.0)
+        self.assertEqual(self._cash_balance(), 9150.0)
+        for sell in Transactions.query.filter_by(transaction_type="sell").all():
+            self.assertEqual(float(sell.average_cost_before), 100.0)
+        existing = Transactions.query.filter_by(price=decimal.Decimal("110")).one()
+        same_day = Transactions.query.filter_by(price=decimal.Decimal("120")).one()
+        self.assertEqual(float(existing.cash_balance_before), 8000.0)
+        self.assertEqual(float(same_day.cash_balance_before), 8550.0)
 
     def test_create_transaction_backdated_sell_oversell_rolls_back(self):
         today = datetime.datetime.now(datetime.timezone.utc).date()
@@ -496,6 +657,38 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Transactions.query.count(), 0)
         self.assertEqual(self._cash_balance(), 10000.0)
+
+    def test_create_transaction_backdated_buy_before_ticker_exists_rolls_back(self):
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        FakeMarketData.listed_from = {"IPO": today - datetime.timedelta(days=5)}
+        payload = self._buy_payload("IPO", "Recent IPO", 1)
+        payload["price"] = 50
+        payload["trade_date"] = (today - datetime.timedelta(days=10)).isoformat()
+
+        response = self._post_transaction(payload)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Transactions.query.count(), 0)
+        self.assertEqual(AssetMaster.query.filter_by(ticker="IPO").count(), 0)
+        self.assertEqual(self._cash_balance(), 10000.0)
+
+    def test_create_transaction_backdated_existing_asset_before_listing_rolls_back(self):
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        FakeMarketData.listed_from = {"IPO": today - datetime.timedelta(days=5)}
+        payload = self._buy_payload("IPO", "Recent IPO", 1)
+        payload["price"] = 50
+        self.assertEqual(self._post_transaction(payload).status_code, 201)
+
+        backdated_buy = self._buy_payload("IPO", "Recent IPO", 1)
+        backdated_buy["price"] = 40
+        backdated_buy["trade_date"] = (today - datetime.timedelta(days=10)).isoformat()
+        response = self._post_transaction(backdated_buy)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Transactions.query.count(), 1)
+        holding = self._holding_for_ticker("IPO")
+        self.assertEqual(float(holding.quantity), 1.0)
+        self.assertEqual(self._cash_balance(), 9950.0)
 
     def test_create_transaction_backdated_jpy_uses_historical_fx(self):
         today = datetime.datetime.now(datetime.timezone.utc).date()
@@ -566,8 +759,8 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         self.assertEqual(response.status_code, 201)
         holding = self._holding_for_ticker("AAPL")
         self.assertEqual(float(holding.quantity), 20.0)
-        self.assertEqual(float(holding.average_cost), 125.0)
-        self.assertEqual(self._cash_balance(), 7500.0)
+        self.assertEqual(float(holding.average_cost), 150.0)
+        self.assertEqual(self._cash_balance(), 7000.0)
 
     def test_create_transactions_batch_rolls_back_all_on_failure(self):
         response = self._post_batch(

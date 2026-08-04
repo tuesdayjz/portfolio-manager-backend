@@ -23,6 +23,9 @@ INSUFFICIENT_CASH_MESSAGE = "Cannot buy more than current cash balance"
 PRICE_UNAVAILABLE_MESSAGE = "Unable to fetch a live price for this ticker."
 FX_UNAVAILABLE_MESSAGE = "Unable to fetch an FX rate for this ticker currency."
 UNSUPPORTED_ASSET_MESSAGE = "Unable to register this ticker."
+ASSET_NOT_TRADABLE_ON_DATE_MESSAGE = (
+    "Ticker did not exist on or before the requested trade_date."
+)
 
 # Yahoo Finance の `quoteType` -> `asset_type.asset_type`。
 # ここで判別できない資産クラス（bond / reit など）は未対応。取引前に
@@ -271,6 +274,7 @@ def _create_transaction_line(
     trade_date = item.get("trade_date") or today
     if trade_date > today:
         abort(400, message="trade_date cannot be later than today.")
+    _ensure_asset_tradable_on_date(asset, trade_date, today, market_data)
 
     price = _item_price(item, asset, market_data, today, trade_date)
     if price is None:
@@ -287,6 +291,8 @@ def _create_transaction_line(
 
     now = datetime.datetime.now(datetime.timezone.utc)
     if apply_incremental:
+        transaction_average_cost_before = average_cost_before
+        transaction_cash_balance_before = cash_balance
         fx_rate = _fx_to_usd_for_trade(
             market_data, _asset_currency(asset), trade_date, today
         )
@@ -300,6 +306,8 @@ def _create_transaction_line(
         else:
             if trade_amount_usd > cash_balance:
                 abort(400, message=INSUFFICIENT_CASH_MESSAGE)
+            if existing_quantity == 0:
+                transaction_average_cost_before = decimal.Decimal("0")
             new_quantity = existing_quantity + quantity
             holding.average_cost = (
                 existing_quantity * existing_average_cost + quantity * price
@@ -317,7 +325,12 @@ def _create_transaction_line(
             trade_date=trade_date,
             quantity=quantity,
             price=price,
-            average_cost_before=average_cost_before if apply_incremental else None,
+            average_cost_before=(
+                transaction_average_cost_before if apply_incremental else None
+            ),
+            cash_balance_before=(
+                transaction_cash_balance_before if apply_incremental else None
+            ),
             transaction_type=transaction_type.value,
         )
     )
@@ -337,13 +350,19 @@ def _create_transaction_line(
 
 
 def _item_price(item, asset, market_data, today, trade_date):
-    if trade_date == today:
-        return _decimal_or_none(market_data.latest_price(asset.ticker))
-
     price = item.get("price")
     if price is not None:
         return _decimal_or_none(price)
     return _decimal_or_none(market_data.latest_price(asset.ticker))
+
+
+def _ensure_asset_tradable_on_date(asset, trade_date, today, market_data):
+    if trade_date >= today:
+        return
+    if not hasattr(market_data, "asset_exists_on_or_before"):
+        return
+    if not market_data.asset_exists_on_or_before(asset.ticker, trade_date):
+        abort(400, message=ASSET_NOT_TRADABLE_ON_DATE_MESSAGE)
 
 
 def _requires_historical_replay(items, today):
@@ -376,14 +395,15 @@ def _replay_portfolio_transactions(portfolio_id, market_data, today, starting_ca
         quantity = _decimal_or_zero(transaction.quantity)
         price = _decimal_or_zero(transaction.price)
         average_cost_before = state["average_cost"]
-        transaction.average_cost_before = average_cost_before
 
         fx_rate = _fx_to_usd_for_trade(
             market_data, _asset_currency(asset), transaction.trade_date, today
         )
         trade_amount_usd = quantity * price * fx_rate
+        transaction.cash_balance_before = cash_balance
 
         if transaction.transaction_type == TransactionType.SELL.value:
+            transaction.average_cost_before = average_cost_before
             if quantity > state["quantity"]:
                 abort(400, message=OVERSELL_MESSAGE)
             state["quantity"] -= quantity
@@ -391,6 +411,11 @@ def _replay_portfolio_transactions(portfolio_id, market_data, today, starting_ca
         else:
             if trade_amount_usd > cash_balance:
                 abort(400, message=INSUFFICIENT_CASH_MESSAGE)
+            transaction.average_cost_before = (
+                decimal.Decimal("0")
+                if state["quantity"] == 0
+                else average_cost_before
+            )
             new_quantity = state["quantity"] + quantity
             previous_average_cost = _decimal_or_zero(average_cost_before)
             state["average_cost"] = (

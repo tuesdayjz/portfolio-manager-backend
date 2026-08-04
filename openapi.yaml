@@ -655,7 +655,7 @@ components:
           format: date
           type: string
         price:
-          description: Executed unit price for historical trades. Same-day trades use market price.
+          description: Executed unit price. Defaults to live market price when omitted.
           example: 2980.5
           exclusiveMinimum: true
           minimum: 0.0
