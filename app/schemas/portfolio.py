@@ -306,3 +306,11 @@ class PerformanceQuerySchema(DateRangeQueryMixin, Schema):
         Interval, by_value=True, load_default=Interval.DAILY,
         metadata={"description": "グラフの粒度", "example": "1d"},
     )
+    asset_type = fields.Str(
+        load_default="all",
+        validate=validate.Length(max=50),
+        metadata={
+            "description": "資産クラスで絞り込む。省略時または `all` は全保有資産。",
+            "example": "all",
+        },
+    )

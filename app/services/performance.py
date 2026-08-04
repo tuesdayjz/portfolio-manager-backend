@@ -47,11 +47,12 @@ def get_portfolio_performance(args, market_data=None):
     portfolio = current_portfolio()
     market_data = market_data or YahooFinanceMarketData()
     interval = args.get("interval") or Interval.DAILY
+    asset_type = args.get("asset_type")
     today = datetime.date.today()
     # 未来日を指定されても、評価できるのは今日までしかない。
     end_date = min(args.get("end_date") or today, today)
 
-    positions, cash_value = _performance_positions(portfolio.id, market_data)
+    positions, cash_value = _performance_positions(portfolio.id, market_data, asset_type=asset_type)
     price_history = _price_history(positions, end_date)
     inception = _inception_date(positions, price_history, end_date)
     start_date, response_range = _performance_window(args, inception, end_date)
@@ -82,7 +83,7 @@ def get_portfolio_performance(args, market_data=None):
     }
 
 
-def _performance_positions(portfolio_id, market_data):
+def _performance_positions(portfolio_id, market_data, asset_type=None):
     """Split holdings into priced positions and a flat USD cash balance."""
 
     holdings = (
@@ -96,19 +97,42 @@ def _performance_positions(portfolio_id, market_data):
         .all()
     )
 
+    filter_asset_type = asset_type.lower() if asset_type and asset_type.lower() != "all" else None
+
     positions = []
     cash_value = decimal.Decimal("0")
     for holding in holdings:
         asset = holding.asset
-        asset_type = getattr(getattr(asset, "asset_type", None), "asset_type", None)
+        holding_asset_type = getattr(getattr(asset, "asset_type", None), "asset_type", None) or ""
+        
+        # If filtering by asset_type, match against asset_type string
+        if filter_asset_type:
+            # Simple substring matching for broader asset class groups (e.g. stock/equities, fx, bond)
+            hat = holding_asset_type.lower()
+            match = False
+            if filter_asset_type in ("equities", "stock") and ("stock" in hat or "equity" in hat or hat in ("etf", "mutualfund", "reit", "")):
+                match = True
+            elif filter_asset_type in ("fx", "forex", "currency") and ("fx" in hat or "forex" in hat or "currency" in hat):
+                match = True
+            elif filter_asset_type in ("fixed-income", "bond") and ("bond" in hat or "fixed" in hat):
+                match = True
+            elif filter_asset_type in ("commodities", "commodity") and ("commodity" in hat or "metal" in hat or "energy" in hat):
+                match = True
+            elif filter_asset_type == hat:
+                match = True
+            
+            if not match:
+                continue
+
         fx_rate = decimal_or_none(market_data.fx_to_usd(asset_currency(asset)))
         if fx_rate is None:
             continue
 
         quantity = decimal_or_zero(holding.quantity)
-        if (asset_type or "").lower() == "cash":
-            # cash holding は quantity=1、average_cost に残高が入る。
-            cash_value += quantity * decimal_or_zero(holding.average_cost) * fx_rate
+        if holding_asset_type.lower() == "cash":
+            # Cash balance is only included when not filtering or explicitly requesting cash/all
+            if not filter_asset_type or filter_asset_type == "cash":
+                cash_value += quantity * decimal_or_zero(holding.average_cost) * fx_rate
             continue
 
         positions.append(
