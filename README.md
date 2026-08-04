@@ -378,13 +378,17 @@ close price と対象期間の起点 close price（例: `1w` なら 1 週間前�
 
 `/transactions` の絞り込みは `transaction_type`, `asset_type`（既定値
 `all`）, `start_date`, `end_date`。`asset_id` と `search` は受け取らない。
-単件作成と一括作成の各 item は `ticker`, `name`, `position`, `order_type`,
-`transaction_type`, `quantity` を受け取り、成功時は作成された取引の確認として
-`date`, `symbol`, `name`, `executed_price`, `executed_unit_price`,
-`asset_type` の約定サマリーを返す。新しい asset を追加する場合は、Yahoo
-Finance API から取得した情報を `asset_master` に登録してから取引を作成する。
-取引登録時は常に `CASH-USD` holding を更新する。USD 以外の銘柄は約定金額を
-USD 換算し、`buy` は差し引き、`sell` は加える。
+履歴取得は `items` に `date`, `symbol`, `name`, `asset_type`, `quantity`,
+`transaction_type`, `executed_price`, `executed_unit_price`, `realized_pl` を返す。
+`realized_pl` は sell のみ計算し、buy は `null`。`totals` はページング前の
+フィルタ適用後全件を対象に、`realized_pl`, `realized_pl_percent`, `currency`
+を返す。単件作成と一括作成の各 item は `ticker`, `name`, `position`,
+`order_type`, `transaction_type`, `quantity` を受け取り、成功時は作成された
+取引の確認として `date`, `symbol`, `name`, `executed_price`,
+`executed_unit_price`, `asset_type` の約定サマリーを返す。新しい asset を
+追加する場合は、Yahoo Finance API から取得した情報を `asset_master` に登録してから
+取引を作成する。取引登録時は常に `CASH-USD` holding を更新する。USD 以外の銘柄は
+約定金額を USD 換算し、`buy` は差し引き、`sell` は加える。
 
 ### 設計メモ
 

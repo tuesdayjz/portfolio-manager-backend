@@ -1,7 +1,8 @@
-"""取引作成のビジネスロジック。買い/売りに応じて holdings を更新し、transactions を記録する。"""
+"""取引のビジネスロジック。履歴取得と、買い/売りによる holdings 更新を扱う。"""
 
 import datetime
 import decimal
+import math
 import uuid
 
 from flask import current_app, g
@@ -31,6 +32,46 @@ QUOTE_TYPE_TO_ASSET_TYPE = {
     "MUTUALFUND": "fund",
     "CRYPTOCURRENCY": "crypto",
 }
+
+
+def get_portfolio_transactions(args):
+    """ログイン user の portfolio に紐づく取引履歴を返す。"""
+
+    portfolio = _portfolio_for_current_user()
+
+    try:
+        rows = _transaction_history_rows(portfolio.id, args)
+    except SQLAlchemyError:
+        db.session.rollback()
+        abort(500, message="Could not fetch transactions.")
+
+    items = [_transaction_history_item(*row) for row in rows]
+    total_items = len(items)
+    page = args.get("page", 1)
+    per_page = args.get("per_page", 20)
+    total_pages = math.ceil(total_items / per_page) if total_items else 0
+    start = (page - 1) * per_page
+    end = start + per_page
+
+    # totals はページング前の filtered rows 全件を対象にする。
+    total_realized_pl, total_cost_basis = _transaction_history_totals(rows)
+
+    return {
+        "items": items[start:end],
+        "totals": {
+            "realized_pl": float(total_realized_pl),
+            "realized_pl_percent": float(
+                _percent_of(total_realized_pl, total_cost_basis)
+            ),
+            "currency": current_app.config["DEFAULT_BASE_CURRENCY"],
+        },
+        "pagination": {
+            "page": page,
+            "per_page": per_page,
+            "total_items": total_items,
+            "total_pages": total_pages,
+        },
+    }
 
 
 def create_transaction(payload, market_data=None):
@@ -81,6 +122,99 @@ def create_transactions_batch(payload, market_data=None):
 
     schedule_asset_history_backfill(current_app._get_current_object(), touched_asset_ids)
     return results
+
+
+def _transaction_history_rows(portfolio_id, args):
+    query = (
+        select(Transactions, Holdings, AssetMaster, AssetType)
+        # ownership は transactions -> holdings -> portfolio で解決する。
+        .join(Holdings, Transactions.holding_id == Holdings.id)
+        .join(AssetMaster, Holdings.asset_id == AssetMaster.id)
+        .outerjoin(AssetType, AssetMaster.asset_type_id == AssetType.id)
+        .where(Holdings.portfolio_id == portfolio_id)
+    )
+
+    transaction_type = args.get("transaction_type") or "all"
+    if transaction_type != "all":
+        query = query.where(Transactions.transaction_type == transaction_type)
+
+    asset_type = (args.get("asset_type") or "all").lower()
+    if asset_type != "all":
+        query = query.where(AssetType.asset_type == asset_type)
+
+    start_date = args.get("start_date")
+    if start_date:
+        query = query.where(Transactions.trade_date >= start_date)
+
+    end_date = args.get("end_date")
+    if end_date:
+        query = query.where(Transactions.trade_date <= end_date)
+
+    query = query.order_by(Transactions.trade_date.desc(), Transactions.created_at.desc())
+    return db.session.execute(query).all()
+
+
+def _transaction_history_item(transaction, holding, asset, asset_type):
+    quantity = _decimal_or_zero(transaction.quantity)
+    unit_price = _decimal_or_zero(transaction.price)
+    realized_pl = _realized_pl(transaction, holding)
+    cost_basis = _transaction_cost_basis(transaction, holding)
+    realized_pl_percent = (
+        _percent_of(realized_pl, cost_basis) if realized_pl is not None else None
+    )
+
+    return {
+        "date": transaction.trade_date,
+        "symbol": asset.ticker,
+        "name": asset.name,
+        "asset_type": getattr(asset_type, "asset_type", None),
+        "quantity": float(quantity),
+        "transaction_type": transaction.transaction_type,
+        "executed_price": float(unit_price * quantity),
+        "executed_unit_price": float(unit_price),
+        "realized_pl": float(realized_pl) if realized_pl is not None else None,
+        "realized_pl_percent": (
+            float(realized_pl_percent) if realized_pl_percent is not None else None
+        ),
+    }
+
+
+def _transaction_history_totals(rows):
+    realized_pl = decimal.Decimal("0")
+    cost_basis = decimal.Decimal("0")
+
+    for transaction, holding, _asset, _asset_type in rows:
+        line_realized_pl = _realized_pl(transaction, holding)
+        if line_realized_pl is None:
+            continue
+        realized_pl += line_realized_pl
+        cost_basis += _transaction_cost_basis(transaction, holding)
+
+    return realized_pl, cost_basis
+
+
+def _realized_pl(transaction, holding):
+    # buy は売却時まで損益が確定しないため null にする。
+    if transaction.transaction_type != TransactionType.SELL.value:
+        return None
+
+    quantity = _decimal_or_zero(transaction.quantity)
+    unit_price = _decimal_or_zero(transaction.price)
+    average_cost = _transaction_average_cost_before(transaction, holding)
+    return (unit_price - average_cost) * quantity
+
+
+def _transaction_average_cost_before(transaction, holding):
+    average_cost_before = getattr(transaction, "average_cost_before", None)
+    if average_cost_before is not None:
+        return _decimal_or_zero(average_cost_before)
+    return _decimal_or_zero(holding.average_cost)
+
+
+def _transaction_cost_basis(transaction, holding):
+    quantity = _decimal_or_zero(transaction.quantity)
+    average_cost = _transaction_average_cost_before(transaction, holding)
+    return average_cost * quantity
 
 
 def _create_transaction_line(
@@ -294,3 +428,9 @@ def _decimal_or_none(value):
     if result.is_nan() or result <= 0:
         return None
     return result
+
+
+def _percent_of(amount, base):
+    if base == 0:
+        return decimal.Decimal("0")
+    return amount / base * 100

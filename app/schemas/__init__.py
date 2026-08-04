@@ -35,6 +35,7 @@ from app.schemas.portfolio import (
 )
 from app.schemas.transaction import (
     TransactionBatchCreateSchema,
+    TransactionHistoryItemSchema,
     TransactionItemSchema,
     TransactionPageSchema,
     TransactionTotalsSchema,
@@ -97,6 +98,7 @@ __all__ = [
     "SecuritySettingsUpdateSchema",
     "StatementExportQuerySchema",
     "TransactionBatchCreateSchema",
+    "TransactionHistoryItemSchema",
     "TransactionItemSchema",
     "TransactionPageSchema",
     "TransactionTotalsSchema",
