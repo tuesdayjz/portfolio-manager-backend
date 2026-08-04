@@ -203,8 +203,10 @@ response は `items` に `date`, `symbol`, `name`, `asset_type`, `quantity`,
 transaction write の将来挙動:
 
 - body の `ticker` + `name` とログイン user の portfolio から asset / holding を探す。
-- `buy` は transaction を追加し、holding quantity を増やし、average cost を再計算する。
-- `sell` は transaction を追加し、holding quantity を減らす。
+- `buy` は transaction を追加し、holding quantity を増やし、average cost を再計算し、
+  約定金額を USD 換算して `CASH-USD` holding から差し引く。
+- `sell` は transaction を追加し、holding quantity を減らし、約定金額を USD 換算して
+  `CASH-USD` holding に加える。
 - holding quantity を超える `sell` は `400`。
 - batch は全件 validation 後にまとめて更新する。1 件でも不正なら何も更新しない。
 
@@ -266,7 +268,6 @@ Auth 側で管理する。
 | --- | --- | --- |
 | `id` | uuid | internal id。private API response では返さない |
 | `user_id` | uuid | owner; `users.id` を参照 |
-| `name` | text | default portfolio name |
 | `created_at` | timestamptz | default `now()` |
 | `updated_at` | timestamptz | default `now()` |
 
@@ -308,6 +309,7 @@ Review note: `asset_master.asset_type` の text column は削除済み。資産�
 | `quantity` | numeric | transaction quantity |
 | `price` | numeric | transaction price |
 | `fees` | numeric | default `0` |
+| `average_cost_before` | numeric | 取引前の平均取得単価 |
 | `created_at` | timestamptz | default `now()` |
 
 `transactions` に `user_id` / `portfolio_id` / `asset_id` は追加しない。

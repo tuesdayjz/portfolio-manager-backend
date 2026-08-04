@@ -420,9 +420,9 @@ components:
       additionalProperties: false
       properties:
         cash_balance:
-          default: 0.0
+          default: 1000000.0
           description: Initial cash amount stored as a cash holding with quantity
-            1
+            1. Defaults to 1000000 if omitted.
           example: 1000000
           minimum: 0.0
           type: number

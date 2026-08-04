@@ -374,11 +374,13 @@ holding 件数を `holdings_count` として `value` の降順で返す。cash h
 取引の確認として `date`, `symbol`, `name`, `executed_price`,
 `executed_unit_price`, `asset_type` の約定サマリーを返す。新しい asset を
 追加する場合は、Yahoo Finance API から取得した情報を `asset_master` に登録してから
-取引を作成する。
+取引を作成する。取引登録時は常に `CASH-USD` holding を更新する。USD 以外の銘柄は
+約定金額を USD 換算し、`buy` は差し引き、`sell` は加える。
 
 ### 設計メモ
 
-- **実際の証券発注は行わない。** 売買は取引履歴の記録と保有残高の更新だけを行う。
+- **実際の証券発注は行わない。** 売買は取引履歴の記録、保有残高、cash holding
+  の更新だけを行う。
 - **所有者はログイン情報から解決する。** private API では client から
   `user_id` も `portfolio_id` も受け取らない。backend 内部では
   Supabase Auth user id と `portfolio.user_id` で対象データを解決する。

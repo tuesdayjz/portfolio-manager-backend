@@ -3,6 +3,7 @@ import os
 import click
 from dotenv import load_dotenv
 from flask import Flask
+from flask_cors import CORS
 
 load_dotenv()
 
@@ -18,6 +19,8 @@ def create_app(config_name: str | None = None) -> Flask:
     """
     app = Flask(__name__)
     app.config.from_object(get_config(config_name))
+
+    CORS(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}})
 
     db.init_app(app)
     # マイグレーションの自動生成が拾えるよう、モデルを db より後に import する。

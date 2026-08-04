@@ -100,6 +100,7 @@ class TransactionHistoryEndpointTest(unittest.TestCase):
                 quantity NUMERIC NOT NULL,
                 price NUMERIC NOT NULL,
                 fees NUMERIC NOT NULL DEFAULT 0,
+                average_cost_before NUMERIC,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 transaction_type TEXT NOT NULL
             )
@@ -225,6 +226,7 @@ class TransactionHistoryEndpointTest(unittest.TestCase):
                     quantity=decimal.Decimal("3"),
                     price=decimal.Decimal("150"),
                     fees=decimal.Decimal("15"),
+                    average_cost_before=decimal.Decimal("100"),
                     created_at=now + datetime.timedelta(minutes=1),
                     transaction_type="sell",
                 ),
@@ -235,6 +237,7 @@ class TransactionHistoryEndpointTest(unittest.TestCase):
                     quantity=decimal.Decimal("1"),
                     price=decimal.Decimal("420"),
                     fees=decimal.Decimal("0"),
+                    average_cost_before=decimal.Decimal("400"),
                     created_at=now + datetime.timedelta(minutes=2),
                     transaction_type="sell",
                 ),
@@ -245,6 +248,7 @@ class TransactionHistoryEndpointTest(unittest.TestCase):
                     quantity=decimal.Decimal("1"),
                     price=decimal.Decimal("300"),
                     fees=decimal.Decimal("0"),
+                    average_cost_before=decimal.Decimal("250"),
                     created_at=now + datetime.timedelta(minutes=3),
                     transaction_type="sell",
                 ),
