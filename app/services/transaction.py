@@ -4,7 +4,7 @@ import datetime
 import decimal
 import uuid
 
-from flask import g
+from flask import current_app, g
 from flask_smorest import abort
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -13,11 +13,13 @@ from werkzeug.exceptions import HTTPException
 from app.enums import TransactionType
 from app.extensions import db
 from app.models import AssetMaster, AssetType, Currency, Holdings, Portfolio, Transactions
+from app.services.asset_history import schedule_asset_history_backfill
 from app.services.market_data import YahooFinanceMarketData
 
 PORTFOLIO_NOT_FOUND_MESSAGE = "The specified portfolio does not exist"
 OVERSELL_MESSAGE = "Cannot sell more than current holding"
 PRICE_UNAVAILABLE_MESSAGE = "Unable to fetch a live price for this ticker."
+FX_UNAVAILABLE_MESSAGE = "Unable to fetch an FX rate for this ticker currency."
 UNSUPPORTED_ASSET_MESSAGE = "Unable to register this ticker."
 
 # Yahoo Finance の `quoteType` -> `asset_type.asset_type`。
@@ -36,9 +38,12 @@ def create_transaction(payload, market_data=None):
 
     portfolio = _portfolio_for_current_user()
     market_data = market_data or YahooFinanceMarketData()
+    touched_asset_ids = set()
 
     try:
-        result = _create_transaction_line(portfolio, payload, market_data, {})
+        result = _create_transaction_line(
+            portfolio, payload, market_data, {}, touched_asset_ids
+        )
         db.session.commit()
     except HTTPException:
         db.session.rollback()
@@ -47,6 +52,7 @@ def create_transaction(payload, market_data=None):
         db.session.rollback()
         abort(500, message="Could not create transaction.")
 
+    schedule_asset_history_backfill(current_app._get_current_object(), touched_asset_ids)
     return result
 
 
@@ -56,10 +62,13 @@ def create_transactions_batch(payload, market_data=None):
     portfolio = _portfolio_for_current_user()
     market_data = market_data or YahooFinanceMarketData()
     holdings_cache = {}
+    touched_asset_ids = set()
 
     try:
         results = [
-            _create_transaction_line(portfolio, item, market_data, holdings_cache)
+            _create_transaction_line(
+                portfolio, item, market_data, holdings_cache, touched_asset_ids
+            )
             for item in payload["transactions"]
         ]
         db.session.commit()
@@ -70,11 +79,15 @@ def create_transactions_batch(payload, market_data=None):
         db.session.rollback()
         abort(500, message="Could not create transactions.")
 
+    schedule_asset_history_backfill(current_app._get_current_object(), touched_asset_ids)
     return results
 
 
-def _create_transaction_line(portfolio, item, market_data, holdings_cache):
+def _create_transaction_line(
+    portfolio, item, market_data, holdings_cache, touched_asset_ids
+):
     asset = _get_or_create_asset(item["ticker"], item["name"], market_data)
+    touched_asset_ids.add(asset.id)
 
     price = _decimal_or_none(market_data.latest_price(asset.ticker))
     if price is None:
@@ -82,23 +95,33 @@ def _create_transaction_line(portfolio, item, market_data, holdings_cache):
 
     holding = _get_or_create_holding(portfolio.id, asset.id, holdings_cache)
     existing_quantity = _decimal_or_zero(holding.quantity)
-    existing_average_cost = _decimal_or_zero(holding.average_cost)
+    average_cost_before = _decimal_or_none(holding.average_cost)
+    existing_average_cost = _decimal_or_zero(average_cost_before)
     quantity = decimal.Decimal(str(item["quantity"]))
     transaction_type = item["transaction_type"]
+    cash_holding = _get_or_create_usd_cash_holding(portfolio.id, holdings_cache)
+    cash_balance = _decimal_or_zero(cash_holding.average_cost)
+    fx_rate = _decimal_or_none(market_data.fx_to_usd(_asset_currency(asset)))
+    if fx_rate is None:
+        abort(502, message=FX_UNAVAILABLE_MESSAGE)
+    trade_amount_usd = quantity * price * fx_rate
 
     if transaction_type is TransactionType.SELL:
         if quantity > existing_quantity:
             abort(400, message=OVERSELL_MESSAGE)
         holding.quantity = existing_quantity - quantity
+        cash_holding.average_cost = cash_balance + trade_amount_usd
     else:
         new_quantity = existing_quantity + quantity
         holding.average_cost = (
             existing_quantity * existing_average_cost + quantity * price
         ) / new_quantity
         holding.quantity = new_quantity
+        cash_holding.average_cost = cash_balance - trade_amount_usd
 
     now = datetime.datetime.now(datetime.timezone.utc)
     holding.updated_at = now
+    cash_holding.updated_at = now
 
     db.session.add(
         Transactions(
@@ -107,6 +130,7 @@ def _create_transaction_line(portfolio, item, market_data, holdings_cache):
             trade_date=now.date(),
             quantity=quantity,
             price=price,
+            average_cost_before=average_cost_before,
             transaction_type=transaction_type.value,
         )
     )
@@ -147,6 +171,54 @@ def _get_or_create_holding(portfolio_id, asset_id, holdings_cache):
 
     holdings_cache[asset_id] = holding
     return holding
+
+
+def _get_or_create_usd_cash_holding(portfolio_id, holdings_cache):
+    cash_asset = _get_or_create_cash_asset("USD")
+    cash_holding = _get_or_create_holding(portfolio_id, cash_asset.id, holdings_cache)
+    if _decimal_or_zero(cash_holding.quantity) == 0:
+        cash_holding.quantity = decimal.Decimal("1")
+    return cash_holding
+
+
+def _get_or_create_cash_asset(currency_code):
+    cash_type = db.session.execute(
+        select(AssetType).where(AssetType.asset_type == "cash")
+    ).scalar_one_or_none()
+    if not cash_type:
+        abort(400, message="Cash asset type does not exist.")
+
+    currency = db.session.execute(
+        select(Currency).where(Currency.currency == currency_code)
+    ).scalar_one_or_none()
+    if not currency:
+        abort(400, message=f"Currency {currency_code} does not exist.")
+
+    ticker = f"CASH-{currency_code}"
+    asset = db.session.execute(
+        select(AssetMaster).where(AssetMaster.ticker == ticker)
+    ).scalar_one_or_none()
+    if asset:
+        return asset
+
+    asset = AssetMaster(
+        id=uuid.uuid4(),
+        ticker=ticker,
+        name=f"Cash {currency_code}",
+        asset_type_id=cash_type.id,
+        currency_id=currency.id,
+    )
+    db.session.add(asset)
+    db.session.flush()
+    return asset
+
+
+def _asset_currency(asset):
+    currency = getattr(asset, "currency", None)
+    currency_code = getattr(currency, "currency", None)
+    if not currency_code:
+        abort(400, message=UNSUPPORTED_ASSET_MESSAGE)
+    return currency_code
 
 
 def _get_or_create_asset(ticker, name, market_data):
