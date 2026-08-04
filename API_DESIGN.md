@@ -247,10 +247,10 @@ assets endpoint は public data を扱うため、`user_id` は不要。
 - `page`
 - `per_page`
 
-response は `items` に `date`, `symbol`, `name`, `asset_type`, `quantity`,
-`transaction_type`, `executed_price`, `executed_unit_price`, `realized_pl` を返す。
-`realized_pl` は sell のみ計算し、buy は `null`。`totals` はページング前の
-フィルタ適用後全件を対象にする。
+response は `items` に `transaction_id`, `date`, `symbol`, `name`, `asset_type`,
+`quantity`, `transaction_type`, `executed_price`, `executed_unit_price`,
+`realized_pl` を返す。`realized_pl` は sell のみ計算し、buy は `null`。`totals`
+はページング前のフィルタ適用後全件を対象にする。
 
 transaction write の将来挙動:
 

@@ -164,6 +164,7 @@ def _transaction_history_item(transaction, holding, asset, asset_type):
     )
 
     return {
+        "transaction_id": str(transaction.id),
         "date": transaction.trade_date,
         "symbol": asset.ticker,
         "name": asset.name,
