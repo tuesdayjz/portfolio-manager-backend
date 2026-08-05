@@ -224,7 +224,11 @@ class PerformanceMetricsSchema(Schema):
 
 
 class PerformanceGraphSchema(Schema):
-    """ポートフォリオ推移グラフ。"""
+    """ポートフォリオ推移グラフ。
+
+    `asset_type` で絞り込んだ場合は、指標も騰落も points も、
+    その資産クラスだけを集計した系列から計算する。
+    """
 
     currency = fields.Str(required=True, metadata={"example": "JPY"})
     interval = fields.Enum(
@@ -240,6 +244,13 @@ class PerformanceGraphSchema(Schema):
     )
     start_date = fields.Date(required=True, metadata={"example": "2026-01-01"})
     end_date = fields.Date(required=True, metadata={"example": "2026-07-28"})
+    asset_type = fields.Str(
+        required=True,
+        metadata={
+            "description": "絞り込みに使った資産クラス。全資産なら `all`。",
+            "example": "all",
+        },
+    )
     metrics = fields.Nested(PerformanceMetricsSchema, required=True)
     # These returns compare today's close price with each range's start close price.
     return_1d = fields.Nested(
@@ -305,4 +316,13 @@ class PerformanceQuerySchema(DateRangeQueryMixin, Schema):
     interval = fields.Enum(
         Interval, by_value=True, load_default=Interval.DAILY,
         metadata={"description": "グラフの粒度", "example": "1d"},
+    )
+    asset_type = fields.Str(
+        load_default="all",
+        validate=validate.Length(max=20),
+        metadata={
+            "description": "資産クラスで絞り込む。省略時は全資産（UI の `All`）。"
+            "`cash` 以外を指定した場合は現金を含めない。",
+            "example": "all",
+        },
     )

@@ -114,7 +114,8 @@ class PortfolioPerformance(MethodView):
         close price で日次の評価額を組み立てる。`today` は今日の close price と
         前日の close price の差分で計算する。各期間の return は、今日の
         close price と対象期間の起点 close price（例: `1w` なら 1 週間前）
-        との差分で計算する。
+        との差分で計算する。`asset_type` を指定すると、その資産クラスの
+        holding だけを集計した推移を返す（`cash` 以外では現金を含めない）。
         """
         require_auth()
         return get_portfolio_performance(args)

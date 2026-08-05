@@ -258,6 +258,10 @@ components:
     PerformanceGraph:
       additionalProperties: false
       properties:
+        asset_type:
+          description: 絞り込みに使った資産クラス。全資産なら `all`。
+          example: all
+          type: string
         currency:
           example: JPY
           type: string
@@ -323,6 +327,7 @@ components:
           format: date
           type: string
       required:
+      - asset_type
       - currency
       - end_date
       - interval
@@ -953,7 +958,9 @@ paths:
 
         close price と対象期間の起点 close price（例: `1w` なら 1 週間前）
 
-        との差分で計算する。'
+        との差分で計算する。`asset_type` を指定すると、その資産クラスの
+
+        holding だけを集計した推移を返す（`cash` 以外では現金を含めない）。'
       parameters:
       - in: query
         name: start_date
@@ -995,6 +1002,15 @@ paths:
           - 1wk
           - 1mo
           example: 1d
+      - description: 資産クラスで絞り込む。省略時は全資産（UI の `All`）。`cash` 以外を指定した場合は現金を含めない。
+        in: query
+        name: asset_type
+        required: false
+        schema:
+          default: all
+          example: all
+          maxLength: 20
+          type: string
       responses:
         '200':
           content:

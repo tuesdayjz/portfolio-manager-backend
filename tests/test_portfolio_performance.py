@@ -124,6 +124,7 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
                 quantity NUMERIC NOT NULL,
                 price NUMERIC NOT NULL,
                 fees NUMERIC NOT NULL DEFAULT 0,
+                average_cost_before NUMERIC,
                 created_at DATETIME NOT NULL,
                 transaction_type TEXT NOT NULL DEFAULT ''
             )
@@ -551,6 +552,65 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
             [{"date": self.today.isoformat(), "total_market_value": 0}],
         )
         self.assertEqual(data["return_1d"], {"amount": 0, "percent": 0})
+
+    def test_performance_defaults_asset_type_to_all(self):
+        self._seed_cash_and_stock()
+
+        response = self._get_performance()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["asset_type"], "all")
+
+    def test_performance_filters_series_by_asset_type(self):
+        self._seed_cash_and_stock()
+
+        response = self._get_performance("?asset_type=stock")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["asset_type"], "stock")
+        # 現金 1000 を除いた AAPL 10 株ぶんだけの系列になる。
+        self.assertEqual(
+            [(point["date"], point["total_market_value"]) for point in data["points"]],
+            [
+                (self._days_ago(10).isoformat(), 800),
+                (self._days_ago(7).isoformat(), 900),
+                (self._days_ago(1).isoformat(), 950),
+                (self.today.isoformat(), 1000),
+            ],
+        )
+        self.assertEqual(data["metrics"]["portfolio_value"], 1000)
+        self.assertEqual(data["return_total"]["amount"], 200)
+        self.assertAlmostEqual(
+            data["return_total"]["percent"], 200 / 800 * 100, places=6
+        )
+
+    def test_performance_filters_cash_only(self):
+        self._seed_cash_and_stock()
+
+        response = self._get_performance("?asset_type=cash")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        # cash holding は取引履歴を持たないため、期間中は一定額になる。
+        self.assertEqual(
+            data["points"],
+            [{"date": self.today.isoformat(), "total_market_value": 1000}],
+        )
+        self.assertEqual(data["return_total"], {"amount": 0, "percent": 0})
+
+    def test_performance_returns_zeros_for_unheld_asset_type(self):
+        self._seed_cash_and_stock()
+
+        response = self._get_performance("?asset_type=bond")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["metrics"]["portfolio_value"], 0)
+        self.assertEqual(
+            data["points"],
+            [{"date": self.today.isoformat(), "total_market_value": 0}],
+        )
 
     def test_performance_rejects_start_date_after_end_date(self):
         self._create_portfolio()
