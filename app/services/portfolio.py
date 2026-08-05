@@ -167,7 +167,7 @@ def get_portfolio_holdings(args, market_data=None):
     per_page = args.get("per_page", 20)
     items = []
     total_market_value = decimal.Decimal("0")
-    total_day_change = decimal.Decimal("0")
+    total_unrealized_pl = decimal.Decimal("0")
     total_previous_value = decimal.Decimal("0")
 
     holdings = db.session.execute(
@@ -204,11 +204,11 @@ def get_portfolio_holdings(args, market_data=None):
         average_purchase_price = average_cost * fx_rate
         total_purchase_price = average_purchase_price * quantity
         holding_market_value = current_price_usd * quantity
-        day_change = (current_price_usd - previous_close_usd) * quantity
+        unrealized_pl = (current_price_usd - average_purchase_price) * quantity
 
         total_market_value += holding_market_value
-        total_day_change += day_change
-        total_previous_value += previous_close_usd * quantity
+        total_unrealized_pl += unrealized_pl
+        total_previous_value += average_purchase_price * quantity
 
         items.append(
             {
@@ -221,7 +221,7 @@ def get_portfolio_holdings(args, market_data=None):
                 "current_price": float(current_price_usd),
                 "total_market_value": float(holding_market_value),
                 "today_return_percent": float(
-                    _return_percent(current_price_usd, previous_close_usd)
+                    _return_percent(current_price_usd, average_purchase_price)
                 ),
                 "total_return_percent": float(
                     _return_percent(current_price_usd, average_purchase_price)
@@ -239,9 +239,9 @@ def get_portfolio_holdings(args, market_data=None):
         "items": items[start:end],
         "totals": {
             "market_value": float(total_market_value),
-            "day_change": float(total_day_change),
+            "day_change": float(total_unrealized_pl),
             "day_change_percent": float(
-                percent_of(total_day_change, total_previous_value)
+                percent_of(total_unrealized_pl, total_previous_value)
             ),
             "currency": SUMMARY_CURRENCY,
         },
