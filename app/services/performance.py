@@ -87,7 +87,8 @@ def get_portfolio_performance(args, market_data=None):
     start_date, response_range = _performance_window(args, inception, end_date)
 
     as_of_value = values[-1]
-    returns = _performance_returns(dates, values, end_date)
+    investment_flows = _investment_flows(positions, end_date)
+    returns = _performance_returns(dates, values, end_date, investment_flows)
 
     return {
         "currency": SUMMARY_CURRENCY,
@@ -100,7 +101,10 @@ def get_portfolio_performance(args, market_data=None):
             "portfolio_value": float(as_of_value),
             "today": returns["return_1d"],
             "return": _performance_change(
-                as_of_value, _value_as_of(dates, values, start_date)
+                as_of_value,
+                *_return_baseline(
+                    dates, values, start_date, end_date, investment_flows
+                ),
             ),
             "total_return": returns["return_total"],
         },
@@ -335,24 +339,90 @@ def _inception_date(first_trade_date, dates, end_date):
     return min(dates[0], end_date) if dates else end_date
 
 
-def _value_as_of(dates, values, target):
-    """Return the portfolio value on or before `target`.
+def _investment_flows(positions, as_of):
+    """Return BUY and SELL amounts for the positions through ``as_of``."""
 
-    起点より前のデータが無い期間（運用 3 か月で `1y` を見た場合など）は、
-    記録のある最も古い評価額を起点として扱う。
-    """
+    holding_ids = [position["holding_id"] for position in positions]
+    if not holding_ids:
+        return []
 
-    index = bisect.bisect_right(dates, target) - 1
-    return values[max(index, 0)]
+    rate_on_or_before = (
+        select(CurrencyRateHistory.close_price)
+        .where(CurrencyRateHistory.currency_id == AssetMaster.currency_id)
+        .where(CurrencyRateHistory.rate_date <= Transactions.trade_date)
+        .order_by(CurrencyRateHistory.rate_date.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    earliest_rate = (
+        select(CurrencyRateHistory.close_price)
+        .where(CurrencyRateHistory.currency_id == AssetMaster.currency_id)
+        .order_by(CurrencyRateHistory.rate_date)
+        .limit(1)
+        .scalar_subquery()
+    )
+    fx_rate = func.coalesce(
+        rate_on_or_before, earliest_rate, _live_fx_case(positions)
+    )
+    amount = (Transactions.quantity * Transactions.price * fx_rate).label("amount")
+
+    rows = db.session.execute(
+        select(
+            Transactions.trade_date,
+            Transactions.transaction_type,
+            amount,
+        )
+        .select_from(Transactions)
+        .join(Holdings, Holdings.id == Transactions.holding_id)
+        .join(AssetMaster, AssetMaster.id == Holdings.asset_id)
+        .where(Transactions.holding_id.in_(holding_ids))
+        .where(Transactions.trade_date <= as_of)
+        .where(
+            Transactions.transaction_type.in_(
+                (TransactionType.BUY.value, TransactionType.SELL.value)
+            )
+        )
+        .order_by(Transactions.trade_date)
+    ).all()
+
+    return [
+        (
+            trade_date,
+            transaction_type,
+            decimal_or_zero(amount),
+        )
+        for trade_date, transaction_type, amount in rows
+    ]
 
 
-def _performance_returns(dates, values, as_of):
-    """Compare the as-of value with the starting value of each range."""
+def _return_baseline(dates, values, target, as_of, investment_flows):
+    """Return the historical baseline and BUY/SELL amounts after it."""
+
+    index = max(bisect.bisect_right(dates, target) - 1, 0)
+    baseline_date = dates[index]
+    purchases = decimal.Decimal("0")
+    sales = decimal.Decimal("0")
+    for trade_date, transaction_type, amount in investment_flows:
+        if not baseline_date < trade_date <= as_of:
+            continue
+        if transaction_type == TransactionType.BUY.value:
+            purchases += decimal_or_zero(amount)
+        elif transaction_type == TransactionType.SELL.value:
+            sales += decimal_or_zero(amount)
+
+    return values[index], purchases, sales
+
+
+def _performance_returns(dates, values, as_of, investment_flows=()):
+    """Compare the as-of value with each range's trade-adjusted baseline."""
 
     as_of_value = values[-1]
 
     def change(target):
-        return _performance_change(as_of_value, _value_as_of(dates, values, target))
+        return _performance_change(
+            as_of_value,
+            *_return_baseline(dates, values, target, as_of, investment_flows),
+        )
 
     return {
         "return_1d": change(as_of - datetime.timedelta(days=1)),
@@ -364,15 +434,24 @@ def _performance_returns(dates, values, as_of):
             datetime.date(as_of.year, 1, 1) - datetime.timedelta(days=1)
         ),
         "return_1y": change(_minus_months(as_of, 12)),
-        "return_total": _performance_change(as_of_value, values[0]),
+        "return_total": _performance_change(
+            as_of_value,
+            *_return_baseline(dates, values, dates[0], as_of, investment_flows),
+        ),
     }
 
 
-def _performance_change(as_of_value, baseline_value):
-    amount = as_of_value - baseline_value
+def _performance_change(
+    as_of_value,
+    baseline_value,
+    purchases=decimal.Decimal("0"),
+    sales=decimal.Decimal("0"),
+):
+    invested_amount = baseline_value + purchases
+    amount = as_of_value + sales - invested_amount
     return {
         "amount": float(amount),
-        "percent": float(percent_of(amount, baseline_value)),
+        "percent": float(percent_of(amount, invested_amount)),
     }
 
 

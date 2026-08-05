@@ -369,11 +369,12 @@ holding 件数を `holdings_count` として `value` の降順で返す。cash h
 （既定値 `1d`）。日付を指定した場合はそちらが優先され、レスポンスの `range` は
 `null` になる。日次の評価額は `asset_data_history` の close price から組み立て、
 各日の保有数量は取引履歴を現在の holdings から差し戻して復元する。cash holding は
-期間中一定額として扱い、過去の FX は保存していないため現在のレートで換算する。
+グラフ上では期間中一定額として扱い、過去の FX は保存していないため現在のレートで換算する。
 レスポンスは `return_1d`, `return_1w`, `return_1m`, `return_3m`, `return_YTD`,
-`return_1y`, `return_total` をそれぞれ `{ amount, percent }` で返す。`today` は
-今日の close price と前日の close price の差分で計算し、各期間の return は今日の
-close price と対象期間の起点 close price（例: `1w` なら 1 週間前）の差分で計算する。
+`return_1y`, `return_total` をそれぞれ `{ amount, percent }` で返す。各期間の
+return は対象期間の起点（例: `1w` なら 1 週間前）以降の買付・売却を調整して計算する。
+各 return の損益額は `(現在資産総額 + 期間中の売却額) - (初期資産総額 +
+期間中の買付額)`、比率は `損益額 / (初期資産総額 + 期間中の買付額)` とする。
 評価額の系列は `range` に関わらず運用開始日（最初の取引日）から作るので、
 表示期間を絞っても `return_total` は変わらない。
 

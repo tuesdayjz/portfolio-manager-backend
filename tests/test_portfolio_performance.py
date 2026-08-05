@@ -356,6 +356,72 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
         # range=all の period return は総損益と一致する。
         self.assertEqual(metrics["return"], data["return_total"])
 
+    def test_performance_returns_account_for_buys_and_sells(self):
+        portfolio = self._create_portfolio()
+        cash = self._asset("CASH-USD", "Cash USD", self.cash_type, self.usd)
+        apple = self._asset("AAPL", "Apple Inc.", self.stock_type, self.usd)
+        self._holding(portfolio, cash, quantity=1, average_cost=900)
+        apple_holding = self._holding(
+            portfolio, apple, quantity=11, average_cost=100
+        )
+        self._prices(
+            apple,
+            {
+                self._days_ago(10): 100,
+                self._days_ago(7): 102,
+                self._days_ago(1): 108,
+                self.today: 110,
+            },
+        )
+        self._trade(
+            apple_holding,
+            trade_date=self._days_ago(10),
+            quantity=10,
+            price=100,
+            transaction_type="buy",
+        )
+        self._trade(
+            apple_holding,
+            trade_date=self._days_ago(5),
+            quantity=2,
+            price=100,
+            transaction_type="buy",
+        )
+        self._trade(
+            apple_holding,
+            trade_date=self._days_ago(2),
+            quantity=1,
+            price=100,
+            transaction_type="sell",
+        )
+
+        response = self._get_performance()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        total_return = data["return_total"]
+        # 現金を除き、(現在 1210 + 売却 100) - (初期 1000 + 買付 200) = 110。
+        self.assertEqual(total_return["amount"], 110)
+        self.assertAlmostEqual(total_return["percent"], 110 / 1200 * 100, places=6)
+        # 1 日以内には売買がないため、前日評価額 1188 との差分になる。
+        self.assertEqual(data["return_1d"]["amount"], 22)
+        self.assertAlmostEqual(
+            data["return_1d"]["percent"], 22 / 1188 * 100, places=6
+        )
+        # 1 週間では買付 200 と売却 100 の両方を調整する。
+        self.assertEqual(data["return_1w"]["amount"], 90)
+        self.assertAlmostEqual(
+            data["return_1w"]["percent"], 90 / 1220 * 100, places=6
+        )
+        # 起点より前まで遡る期間も total と同じ売買調整を行う。
+        self.assertEqual(data["return_1m"], total_return)
+
+        range_response = self._get_performance("?range=1w")
+
+        self.assertEqual(range_response.status_code, 200)
+        range_data = range_response.get_json()
+        self.assertEqual(range_data["metrics"]["return"], range_data["return_1w"])
+
     def test_performance_range_limits_points_only(self):
         self._seed_cash_and_stock()
 
@@ -547,6 +613,47 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
             # 前日は 2 * 1000 * 0.005、今日はレートが無いので前日分を横引きする。
             [10, 15],
         )
+
+    def test_performance_converts_investment_flows_with_trade_date_fx(self):
+        portfolio = self._create_portfolio()
+        toyota = self._asset("7203.T", "Toyota Motor Corp.", self.stock_type, self.jpy)
+        holding = self._holding(portfolio, toyota, quantity=12, average_cost=1000)
+        self._prices(
+            toyota,
+            {self._days_ago(10): 1000, self.today: 1200},
+        )
+        self._rates(
+            self.jpy,
+            {
+                self._days_ago(10): "0.006",
+                self._days_ago(5): "0.007",
+                self.today: "0.008",
+            },
+        )
+        self._trade(
+            holding,
+            trade_date=self._days_ago(10),
+            quantity=10,
+            price=1000,
+            transaction_type="buy",
+        )
+        self._trade(
+            holding,
+            trade_date=self._days_ago(5),
+            quantity=2,
+            price=1000,
+            transaction_type="buy",
+        )
+        FakeMarketData.fx_rates = {"JPY": 0.01}
+
+        response = self._get_performance()
+
+        self.assertEqual(response.status_code, 200)
+        total_return = response.get_json()["return_total"]
+        # 追加買付は現在レート 0.01 ではなく、取引日の保存レート 0.007 で
+        # 2 * 1000 * 0.007 = 14 USD として投下額に加える。
+        self.assertAlmostEqual(total_return["amount"], 41.2, places=6)
+        self.assertAlmostEqual(total_return["percent"], 41.2 / 74 * 100, places=6)
 
     def test_performance_uses_earliest_stored_fx_before_history_starts(self):
         portfolio = self._create_portfolio()
