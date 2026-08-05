@@ -131,12 +131,10 @@ class PortfolioPerformance(MethodView):
         """ポートフォリオ推移グラフを取得する。
 
         取引履歴から日付ごとの保有残高を復元し、`asset_data_history` の
-        close price で日次の評価額を組み立てる。`today` は今日の close price と
-        前日の close price の差分で計算する。各期間の return は、今日の
-        close price と対象期間の起点 close price（例: `1w` なら 1 週間前）
-        との差分で計算する。`asset_type` を指定すると、その資産クラスの
-        holding だけを集計した推移を返す。現金は評価額に含めず、
-        `asset_type=cash` を指定したときだけ残高を系列として返す。
+        close price で日次の評価額を組み立てる。各期間の return は、期間中の
+        買付・売却を調整した資産総額の損益と、その投下資産に対する比率で計算する。
+        `asset_type` を指定すると、その資産クラスの
+        holding だけを集計した推移を返す（`cash` 以外では現金を含めない）。
         """
         require_auth()
         return get_portfolio_performance(args)

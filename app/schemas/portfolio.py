@@ -257,41 +257,41 @@ class PerformanceGraphSchema(Schema):
         },
     )
     metrics = fields.Nested(PerformanceMetricsSchema, required=True)
-    # These returns compare today's close price with each range's start close price.
+    # These returns adjust the change in asset value for purchases and sales.
     return_1d = fields.Nested(
         PerformanceChangeSchema,
         required=True,
-        metadata={"description": "今日の close price と前日の close price の差分"},
+        metadata={"description": "前日以降の買付・売却を調整した損益"},
     )
     return_1w = fields.Nested(
         PerformanceChangeSchema,
         required=True,
-        metadata={"description": "今日の close price と 1 週間前の close price の差分"},
+        metadata={"description": "1 週間前以降の買付・売却を調整した損益"},
     )
     return_1m = fields.Nested(
         PerformanceChangeSchema,
         required=True,
-        metadata={"description": "今日の close price と 1 か月前の close price の差分"},
+        metadata={"description": "1 か月前以降の買付・売却を調整した損益"},
     )
     return_3m = fields.Nested(
         PerformanceChangeSchema,
         required=True,
-        metadata={"description": "今日の close price と 3 か月前の close price の差分"},
+        metadata={"description": "3 か月前以降の買付・売却を調整した損益"},
     )
     return_YTD = fields.Nested(
         PerformanceChangeSchema,
         required=True,
-        metadata={"description": "今日の close price と年初の close price の差分"},
+        metadata={"description": "年初以降の買付・売却を調整した損益"},
     )
     return_1y = fields.Nested(
         PerformanceChangeSchema,
         required=True,
-        metadata={"description": "今日の close price と 1 年前の close price の差分"},
+        metadata={"description": "1 年前以降の買付・売却を調整した損益"},
     )
     return_total = fields.Nested(
         PerformanceChangeSchema,
         required=True,
-        metadata={"description": "今日の close price と運用開始時点の close price の差分"},
+        metadata={"description": "運用開始以降の買付・売却を調整した損益"},
     )
     points = fields.List(fields.Nested(PerformanceGraphPointSchema), required=True)
 

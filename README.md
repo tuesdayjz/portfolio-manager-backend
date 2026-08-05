@@ -309,6 +309,79 @@ All under `/api/v1`. Refer to [`API_DESIGN.md`](API_DESIGN.md) for design backgr
 }
 ```
 
+`GET /portfolios/summary` はログイン user の portfolio から USD 建ての
+サマリーを返す。`cash_balance` は cash holding を USD に換算して集計し、
+`total_market_value` と `total_return_percent` は cash 以外の holding だけで
+計算する。市場価格と FX は Yahoo Finance から取得し、DB には保存しない。
+
+`GET /portfolios/holdings` は cash を除いた保有残高一覧を USD 建てで返す。
+`asset_type`（既定値 `all`）、`page`、`per_page` を受け取る。`asset_id` と
+`search` は受け取らず、検索はフロントエンド側で行う。`items` は現在価格・取得単価・
+評価額・当日騰落率・累計損益率を返す。現在価格と FX は Yahoo Finance から取得し、
+前日終値は `asset_data_history` の `price_date < today` の最新 `close_price` を使う。
+必要な market data が足りない holding は一覧と totals から除外する。`totals` は
+ページング後の `items` ではなく、条件に一致した全 holding で集計する。
+
+`GET /portfolios/allocation` は必須の `group_by`（`asset_type` / `currency` /
+`asset` / `sector`）で集計した配分を USD 建てで返す。`items` は分類名を
+`category`、USD 評価額を `value`、0〜1 の構成比を `weight`、区分に含まれる
+holding 件数を `holdings_count` として `value` の降順で返す。cash holding も
+1 区分として含めるが、`group_by=sector` だけは株式（`asset_type=stock`）に
+限定し、Yahoo Finance の sector が取れない銘柄は集計から除く。市場価格と FX が
+取れない holding も除外する。`as_of` は価格を取得した時刻。
+
+`GET /portfolios/performance` は推移グラフを USD 建てで返す。`start_date`,
+`end_date`, `range`, `interval` を取る。`range` は `1d` / `1w` / `1m` / `3m` /
+`YTD` / `1y` / `all`（既定値 `all`）、`interval` は `1d` / `1wk` / `1mo`
+（既定値 `1d`）。日付を指定した場合はそちらが優先され、レスポンスの `range` は
+`null` になる。日次の評価額は `asset_data_history` の close price から組み立て、
+各日の保有数量は取引履歴を現在の holdings から差し戻して復元する。cash holding は
+グラフ上では期間中一定額として扱い、過去の FX は保存していないため現在のレートで換算する。
+レスポンスは `return_1d`, `return_1w`, `return_1m`, `return_3m`, `return_YTD`,
+`return_1y`, `return_total` をそれぞれ `{ amount, percent }` で返す。各期間の
+return は対象期間の起点（例: `1w` なら 1 週間前）以降の買付・売却を調整して計算する。
+各 return の損益額は `(現在資産総額 + 期間中の売却額) - (初期資産総額 +
+期間中の買付額)`、比率は `損益額 / (初期資産総額 + 期間中の買付額)` とする。
+評価額の系列は `range` に関わらず運用開始日（最初の取引日）から作るので、
+表示期間を絞っても `return_total` は変わらない。
+
+`/transactions` の絞り込みは `transaction_type`, `asset_type`（既定値
+`all`）, `start_date`, `end_date`。`asset_id` と `search` は受け取らない。
+履歴取得は `items` に `date`, `symbol`, `name`, `asset_type`, `quantity`,
+`transaction_type`, `executed_price`, `executed_unit_price`, `realized_pl` を返す。
+`realized_pl` は sell のみ計算し、buy は `null`。`totals` はページング前の
+フィルタ適用後全件を対象に、`realized_pl`, `realized_pl_percent`, `currency`
+を返す。単件作成と一括作成の各 item は `ticker`, `name`, `position`,
+`order_type`, `transaction_type`, `quantity` を受け取り、成功時は作成された
+取引の確認として `date`, `symbol`, `name`, `executed_price`,
+`executed_unit_price`, `asset_type` の約定サマリーを返す。新しい asset を
+追加する場合は、Yahoo Finance API から取得した情報を `asset_master` に登録してから
+取引を作成する。取引登録時は常に `CASH-USD` holding を更新する。USD 以外の銘柄は
+約定金額を USD 換算し、`buy` は差し引き、`sell` は加える。
+
+### 設計メモ
+
+- **実際の証券発注は行わない。** 売買は取引履歴の記録、保有残高、cash holding
+  の更新だけを行う。
+- **所有者はログイン情報から解決する。** private API では client から
+  `user_id` も `portfolio_id` も受け取らない。backend 内部では
+  Supabase Auth user id と `portfolio.user_id` で対象データを解決する。
+- **`portfolio_id` はレスポンスで返さない。** private なポートフォリオデータは
+  ログイン情報から解決する想定で、クライアントには公開しない。
+- **React から直接読む private data は Supabase RLS で守る。** 重要な write と
+  ownership check は後続の SQLAlchemy 実装に寄せる。
+- **`current_price` は保存しない。** 市場価格は Yahoo Finance または
+  `asset_data_history` 由来で、Supabase `holdings` には書かない。
+- **`cash_balance` は cash holding として扱う。** portfolio table には保存せず、
+  `asset_type=cash` の asset を使って holdings に quantity `1` で登録する。
+- **`holdings` 一覧は investment holding だけを返す。** cash は summary の
+  `cash_balance` で扱い、holdings list には含めない。
+- **一括登録は全件検証してから更新する。** 1 件でも不正なら何も更新しない。
+
+Supabase のテーブル定義と将来の実装方針は
+[`API_DESIGN.md`](API_DESIGN.md) にまとめてある。
+
+### 構成
 `POST /portfolios/capital` registers cash deposits (`deposit`) and withdrawals (`withdrawal`), updating the user's cash balance. Returns `400 Bad Request` if withdrawal exceeds available cash balance.
 
 ```json
