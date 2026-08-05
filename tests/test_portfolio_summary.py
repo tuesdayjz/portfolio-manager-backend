@@ -10,7 +10,15 @@ from sqlalchemy import text
 
 from app import create_app
 from app.extensions import db
-from app.models import AssetMaster, AssetType, Currency, Holdings, Portfolio, Users
+from app.models import (
+    AssetDataHistory,
+    AssetMaster,
+    AssetType,
+    Currency,
+    Holdings,
+    Portfolio,
+    Users,
+)
 
 
 class FakeMarketData:
@@ -34,6 +42,7 @@ class PortfolioSummaryEndpointTest(unittest.TestCase):
         self.client = self.app.test_client()
         self.user_id = uuid.uuid4()
         self.user_email = "portfolio-owner@example.com"
+        self.today = datetime.date.today()
 
         self.app_context = self.app.app_context()
         self.app_context.push()
@@ -214,13 +223,33 @@ class PortfolioSummaryEndpointTest(unittest.TestCase):
         db.session.commit()
         return holding
 
+    def _prices(self, asset, prices_by_date):
+        db.session.add_all(
+            [
+                AssetDataHistory(
+                    id=uuid.uuid4(),
+                    asset_id=asset.id,
+                    price_date=price_date,
+                    close_price=close_price,
+                )
+                for price_date, close_price in prices_by_date.items()
+            ]
+        )
+        db.session.commit()
+
     def test_summary_calculates_usd_cash_and_stock(self):
         portfolio = self._create_portfolio()
         cash = self._asset("CASH-USD", self.cash_type, self.usd)
         stock = self._asset("AAPL", self.stock_type, self.usd)
         self._holding(portfolio, cash, quantity=1, average_cost=1250000)
         self._holding(portfolio, stock, quantity=10, average_cost=100)
-        FakeMarketData.prices = {"AAPL": 120}
+        self._prices(
+            stock,
+            {
+                self.today - datetime.timedelta(days=1): 100,
+                self.today: 120,
+            },
+        )
         FakeMarketData.fx_rates = {}
 
         response = self._get_summary()
@@ -230,14 +259,22 @@ class PortfolioSummaryEndpointTest(unittest.TestCase):
         self.assertEqual(data["currency"], "USD")
         self.assertEqual(data["currency_symbol"], "$")
         self.assertEqual(data["cash_balance"], 1250000)
-        self.assertEqual(data["total_market_value"], 1200)
-        self.assertEqual(data["total_return_percent"], 20)
+        self.assertEqual(data["total_market_value"], 1251200)
+        self.assertAlmostEqual(
+            data["total_return_percent"], 200 / 1251000 * 100, places=6
+        )
 
     def test_summary_converts_non_usd_stock_to_usd(self):
         portfolio = self._create_portfolio()
         stock = self._asset("7203.T", self.stock_type, self.jpy)
         self._holding(portfolio, stock, quantity=2, average_cost=1000)
-        FakeMarketData.prices = {"7203.T": 1500}
+        self._prices(
+            stock,
+            {
+                self.today - datetime.timedelta(days=1): 1000,
+                self.today: 1500,
+            },
+        )
         FakeMarketData.fx_rates = {"JPY": 0.01}
 
         response = self._get_summary()
@@ -267,7 +304,13 @@ class PortfolioSummaryEndpointTest(unittest.TestCase):
         skipped = self._asset("MSFT", self.stock_type, self.usd)
         self._holding(portfolio, included, quantity=1, average_cost=50)
         self._holding(portfolio, skipped, quantity=1, average_cost=100)
-        FakeMarketData.prices = {"AAPL": 100}
+        self._prices(
+            included,
+            {
+                self.today - datetime.timedelta(days=1): 50,
+                self.today: 100,
+            },
+        )
         FakeMarketData.fx_rates = {}
 
         response = self._get_summary()
@@ -281,7 +324,7 @@ class PortfolioSummaryEndpointTest(unittest.TestCase):
         portfolio = self._create_portfolio()
         stock = self._asset("7203.T", self.stock_type, self.jpy)
         self._holding(portfolio, stock, quantity=2, average_cost=1000)
-        FakeMarketData.prices = {"7203.T": 1500}
+        self._prices(stock, {self.today: 1500})
         FakeMarketData.fx_rates = {}
 
         response = self._get_summary()
@@ -305,7 +348,7 @@ class PortfolioSummaryEndpointTest(unittest.TestCase):
         portfolio = self._create_portfolio()
         stock = self._asset("AAPL", self.stock_type, self.usd)
         self._holding(portfolio, stock, quantity=10, average_cost=0)
-        FakeMarketData.prices = {"AAPL": 120}
+        self._prices(stock, {self.today: 120})
         FakeMarketData.fx_rates = {}
 
         response = self._get_summary()

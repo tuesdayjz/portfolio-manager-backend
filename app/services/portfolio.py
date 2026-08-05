@@ -36,6 +36,14 @@ from app.services.common import (
     percent_of,
 )
 from app.services.market_data import YahooFinanceMarketData
+from app.services.performance import (
+    ALL_ASSET_TYPES,
+    _inception_date,
+    _performance_positions,
+    _performance_returns,
+    _price_history,
+    _value_series,
+)
 
 PORTFOLIO_CREATED_MESSAGE = "Portfolio created"
 PORTFOLIO_ALREADY_EXISTS_MESSAGE = "Portfolio already exists for this user."
@@ -106,12 +114,20 @@ def get_portfolio_summary(market_data=None):
     """Return USD summary values for the current user's portfolio."""
 
     portfolio = current_portfolio()
-
     market_data = market_data or YahooFinanceMarketData()
-    cash_balance = decimal.Decimal("0")
-    total_market_value = decimal.Decimal("0")
-    total_cost_basis = decimal.Decimal("0")
+    today = datetime.date.today()
+    positions, performance_cash_value = _performance_positions(
+        portfolio.id, market_data, ALL_ASSET_TYPES
+    )
+    price_history = _price_history(positions, today)
+    inception = _inception_date(positions, price_history, today)
+    _dates, values = _value_series(
+        positions, performance_cash_value, price_history, inception, today
+    )
+    total_market_value = values[-1]
+    total_return = _performance_returns(_dates, values, today)["return_total"]
 
+    cash_balance = decimal.Decimal("0")
     holdings = db.session.execute(
         select(Holdings)
         .join(Holdings.asset)
@@ -124,32 +140,19 @@ def get_portfolio_summary(market_data=None):
         average_cost = decimal_or_zero(holding.average_cost)
         asset = holding.asset
         asset_type = getattr(getattr(asset, "asset_type", None), "asset_type", None)
+        if asset_type != "cash":
+            continue
         currency = asset_currency(asset)
         fx_rate = decimal_or_none(market_data.fx_to_usd(currency))
-        if fx_rate is None:
-            continue
-
-        if asset_type == "cash":
+        if fx_rate is not None:
             cash_balance += quantity * average_cost * fx_rate
-            continue
-
-        current_price = decimal_or_none(
-            market_data.latest_price(getattr(asset, "ticker", None))
-        )
-        if current_price is None:
-            continue
-
-        total_market_value += quantity * current_price * fx_rate
-        total_cost_basis += quantity * average_cost * fx_rate
 
     return {
         "currency": SUMMARY_CURRENCY,
         "currency_symbol": _summary_currency_symbol(),
         "cash_balance": float(cash_balance),
         "total_market_value": float(total_market_value),
-        "total_return_percent": float(
-            _return_percent(total_market_value, total_cost_basis)
-        ),
+        "total_return_percent": total_return["percent"],
     }
 
 
@@ -420,4 +423,3 @@ def _ratio_of(amount, base):
     if base == 0:
         return decimal.Decimal("0")
     return amount / base
-

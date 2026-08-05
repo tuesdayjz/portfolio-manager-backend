@@ -63,12 +63,17 @@ class PortfolioSummarySchema(Schema):
         metadata={"description": _CASH_BALANCE_NOTE, "example": 1250000},
     )
     total_market_value = fields.Float(
-        required=True, validate=NON_NEGATIVE, metadata={"example": 4220000}
+        required=True,
+        validate=NON_NEGATIVE,
+        metadata={
+            "description": "Performance と同じ評価額。現金を含む portfolio value。",
+            "example": 4220000,
+        },
     )
     total_return_percent = fields.Float(
         required=True,
         metadata={
-            "description": "取得原価に対する損益率（％）。ヘッダーの Total Return。",
+            "description": "Performance の total_return.percent と同じ総リターン率（％）。",
             "example": 8.17,
         },
     )

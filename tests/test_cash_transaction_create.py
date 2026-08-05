@@ -14,6 +14,14 @@ from app.extensions import db
 from app.models import AssetMaster, AssetType, Currency, Holdings, Portfolio, Transactions, Users
 
 
+class FakeMarketData:
+    def fx_to_usd(self, currency):
+        return decimal.Decimal("1") if (currency or "USD").upper() == "USD" else None
+
+    def fx_to_usd_on(self, currency, date):
+        return self.fx_to_usd(currency)
+
+
 class CashTransactionCreateEndpointTest(unittest.TestCase):
     """入金・出金による cash holding の残高更新と取引記録を確認する。"""
 
@@ -101,6 +109,7 @@ class CashTransactionCreateEndpointTest(unittest.TestCase):
                 price NUMERIC NOT NULL,
                 fees NUMERIC NOT NULL DEFAULT 0,
                 average_cost_before NUMERIC,
+                cash_balance_before NUMERIC,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 transaction_type TEXT NOT NULL
             )
@@ -169,7 +178,10 @@ class CashTransactionCreateEndpointTest(unittest.TestCase):
         g.current_access_token = "test-token"
 
     def _post_capital(self, payload):
-        with patch("app.api.portfolios.require_auth", side_effect=self._auth):
+        with (
+            patch("app.api.portfolios.require_auth", side_effect=self._auth),
+            patch("app.services.transaction.YahooFinanceMarketData", FakeMarketData),
+        ):
             return self.client.post("/api/v1/portfolios/capital", json=payload)
 
     def _cash_holding(self):
@@ -226,6 +238,49 @@ class CashTransactionCreateEndpointTest(unittest.TestCase):
         self.assertEqual(float(transaction.quantity), 5000.0)
         self.assertEqual(float(transaction.price), 1.0)
         self.assertIsNone(transaction.average_cost_before)
+        self.assertEqual(float(transaction.cash_balance_before), 1000000.0)
+
+    def test_deposit_replays_existing_trade_cash_balance_before_as_initial_cash(self):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        cash_holding = self._cash_holding()
+        cash_holding.average_cost = decimal.Decimal("0")
+        usd = Currency.query.filter_by(currency="USD").one()
+        stock_type = AssetType(id=uuid.uuid4(), asset_type="stock")
+        asset = AssetMaster(
+            id=uuid.uuid4(),
+            ticker="AAPL",
+            name="Apple Inc.",
+            asset_type=stock_type,
+            currency=usd,
+        )
+        holding = Holdings(
+            id=uuid.uuid4(),
+            portfolio_id=self.portfolio_id,
+            asset=asset,
+            quantity=decimal.Decimal("2"),
+            average_cost=decimal.Decimal("50"),
+            updated_at=now,
+        )
+        buy = Transactions(
+            id=uuid.uuid4(),
+            holding=holding,
+            trade_date=now.date() - datetime.timedelta(days=1),
+            quantity=decimal.Decimal("2"),
+            price=decimal.Decimal("50"),
+            average_cost_before=decimal.Decimal("0"),
+            cash_balance_before=decimal.Decimal("100"),
+            transaction_type="buy",
+            created_at=now,
+        )
+        db.session.add_all([stock_type, asset, holding, buy])
+        db.session.commit()
+
+        response = self._post_capital({"transaction_type": "deposit", "amount": 100})
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(float(self._cash_holding().average_cost), 100.0)
+        db.session.refresh(buy)
+        self.assertEqual(float(buy.cash_balance_before), 200.0)
 
     def test_withdrawal_decreases_cash_balance(self):
         response = self._post_capital(
@@ -243,6 +298,7 @@ class CashTransactionCreateEndpointTest(unittest.TestCase):
         )
         transaction = Transactions.query.one()
         self.assertEqual(transaction.transaction_type, "withdrawal")
+        self.assertEqual(float(transaction.cash_balance_before), 1000000.0)
 
     def test_withdrawal_more_than_balance_returns_400(self):
         response = self._post_capital(

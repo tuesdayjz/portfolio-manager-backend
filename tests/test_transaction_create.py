@@ -546,6 +546,76 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         self.assertEqual(float(earliest_buy.average_cost_before), 0.0)
         self.assertEqual(float(earliest_buy.cash_balance_before), 10000.0)
 
+    def test_create_transaction_backdated_buy_replays_all_trade_cash_after_capital_changes(self):
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        current_buy = self._buy_payload("AAPL", "Apple Inc.", 10)
+        current_buy["price"] = 200
+        self.assertEqual(self._post_transaction(current_buy).status_code, 201)
+
+        current_sell = self._sell_payload("AAPL", "Apple Inc.", 2)
+        current_sell["price"] = 250
+        self.assertEqual(self._post_transaction(current_sell).status_code, 201)
+
+        cash_holding = self._holding_for_ticker("CASH-USD")
+        cash_holding.average_cost += decimal.Decimal("4000")
+        now = datetime.datetime.now(datetime.timezone.utc)
+        db.session.add_all(
+            [
+                Transactions(
+                    id=uuid.uuid4(),
+                    holding_id=cash_holding.id,
+                    trade_date=today,
+                    quantity=decimal.Decimal("5000"),
+                    price=decimal.Decimal("1"),
+                    average_cost_before=None,
+                    cash_balance_before=decimal.Decimal("8500"),
+                    transaction_type="deposit",
+                    created_at=now + datetime.timedelta(seconds=1),
+                ),
+                Transactions(
+                    id=uuid.uuid4(),
+                    holding_id=cash_holding.id,
+                    trade_date=today,
+                    quantity=decimal.Decimal("1000"),
+                    price=decimal.Decimal("1"),
+                    average_cost_before=None,
+                    cash_balance_before=decimal.Decimal("13500"),
+                    transaction_type="withdrawal",
+                    created_at=now + datetime.timedelta(seconds=2),
+                ),
+            ]
+        )
+        db.session.commit()
+
+        historical_buy = self._buy_payload("AAPL", "Apple Inc.", 5)
+        historical_buy["price"] = 100
+        historical_buy["trade_date"] = (
+            today - datetime.timedelta(days=10)
+        ).isoformat()
+        response = self._post_transaction(historical_buy)
+
+        self.assertEqual(response.status_code, 201)
+        holding = self._holding_for_ticker("AAPL")
+        self.assertEqual(float(holding.quantity), 13.0)
+        self.assertAlmostEqual(float(holding.average_cost), 166.6666667, places=5)
+        self.assertEqual(self._cash_balance(), 12000.0)
+        earliest_buy = Transactions.query.filter_by(price=decimal.Decimal("100")).one()
+        current_buy_transaction = (
+            Transactions.query.filter_by(price=decimal.Decimal("200"))
+            .one()
+        )
+        current_sell_transaction = (
+            Transactions.query.filter_by(transaction_type="sell")
+            .one()
+        )
+        deposit = Transactions.query.filter_by(transaction_type="deposit").one()
+        withdrawal = Transactions.query.filter_by(transaction_type="withdrawal").one()
+        self.assertEqual(float(earliest_buy.cash_balance_before), 14000.0)
+        self.assertEqual(float(current_buy_transaction.cash_balance_before), 13500.0)
+        self.assertEqual(float(current_sell_transaction.cash_balance_before), 11500.0)
+        self.assertEqual(float(deposit.cash_balance_before), 8500.0)
+        self.assertEqual(float(withdrawal.cash_balance_before), 13500.0)
+
     def test_create_transaction_historical_buy_after_first_buy_replays_later_costs(self):
         today = datetime.datetime.now(datetime.timezone.utc).date()
         first_buy = self._buy_payload("AAPL", "Apple Inc.", 10)
