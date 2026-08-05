@@ -38,10 +38,8 @@ from app.services.common import (
 from app.services.market_data import YahooFinanceMarketData
 from app.services.performance import (
     ALL_ASSET_TYPES,
-    _inception_date,
     _performance_positions,
     _performance_returns,
-    _price_history,
     _value_series,
 )
 
@@ -116,17 +114,6 @@ def get_portfolio_summary(market_data=None):
     portfolio = current_portfolio()
     market_data = market_data or YahooFinanceMarketData()
     today = datetime.date.today()
-    positions, performance_cash_value = _performance_positions(
-        portfolio.id, market_data, ALL_ASSET_TYPES
-    )
-    price_history = _price_history(positions, today)
-    inception = _inception_date(positions, price_history, today)
-    _dates, values = _value_series(
-        positions, performance_cash_value, price_history, inception, today
-    )
-    total_market_value = values[-1]
-    total_return = _performance_returns(_dates, values, today)["return_total"]
-
     cash_balance = decimal.Decimal("0")
     holdings = db.session.execute(
         select(Holdings)
@@ -146,6 +133,14 @@ def get_portfolio_summary(market_data=None):
         fx_rate = decimal_or_none(market_data.fx_to_usd(currency))
         if fx_rate is not None:
             cash_balance += quantity * average_cost * fx_rate
+
+    # 推移グラフと違い summary の評価額は現金を含むので、系列に残高を足す。
+    positions, _cash_value, first_trade_date = _performance_positions(
+        portfolio.id, market_data, ALL_ASSET_TYPES
+    )
+    dates, values = _value_series(positions, cash_balance, first_trade_date, today)
+    total_market_value = values[-1]
+    total_return = _performance_returns(dates, values, today)["return_total"]
 
     return {
         "currency": SUMMARY_CURRENCY,

@@ -212,7 +212,12 @@ def _latest_stored_rates(currency_ids):
 
 
 def _value_series(positions, cash_value, first_trade_date, end_date):
-    """Build the USD value series up to `end_date`."""
+    """Build the USD value series up to `end_date`.
+
+    `cash_value` は期間中一定なので、全ての点に同じ額を足す。推移グラフは
+    現金を評価額に含めないので 0 が渡るが、現金も含めた合計が要る
+    `get_portfolio_summary` はここに残高を渡す。
+    """
 
     # 価格を持つ保有が無いときは期間末の 1 点だけを返す。`asset_type=cash`
     # ならその点が残高、ポートフォリオが空なら 0 になる。
@@ -223,7 +228,7 @@ def _value_series(positions, cash_value, first_trade_date, end_date):
         _value_series_statement(positions, first_trade_date, end_date)
     ).all()
     dates = [row.price_date for row in rows]
-    values = [decimal_or_zero(row.market_value) for row in rows]
+    values = [cash_value + decimal_or_zero(row.market_value) for row in rows]
     return dates, values
 
 
