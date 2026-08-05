@@ -1,13 +1,13 @@
-## Portfolio Manager (Tokyo Team)
+## Felix Portfolio Manager (Tokyo Team)
 
-Backend repository for the Portfolio Management API. Currently, OpenAPI / Swagger UI and request/response schemas are defined using Flask + flask-smorest. `POST /api/v1/portfolios/` is implemented, while business logic for other portfolio / assets / transactions operations is not yet implemented.
+Backend repository for the Portfolio Management API. Built using Flask, flask-smorest, and SQLAlchemy with Supabase PostgreSQL as the primary database. The backend handles portfolio creation, cash balance management, asset transaction recording (buy/sell), holdings tracking, portfolio valuation summary, asset allocation breakdown, performance history charting, and automatic background import of historical asset prices and currency exchange rates.
 
-Supabase connection setup, Supabase client helpers, database connection tests, and RLS tests are implemented.
+Supabase connection setup, Supabase Auth token validation, Supabase client helpers, database connection tests, SQLAlchemy models, Flask-Migrate migrations, and Supabase RLS tests are implemented.
 
 ### User Story
 
 1. As an investor, I want to register my assets so that I can manage my holdings in one place.
-2. As an investor, I want to view the current value of my portfolio so that I can understand my overall finalcial position.
+2. As an investor, I want to view the current value of my portfolio so that I can understand my overall financial position.
 3. As an investor, I want to track my profits and losses so that I can make informed investment decisions.
 4. As an investor, I want to record my transaction history so that I can review my investment performance over time.
 5. As an investor, I want to visualize my asset allocation so that I can better control and manage risk.
@@ -55,15 +55,15 @@ from app.services.supabase import get_supabase_anon_client
 client = get_supabase_anon_client()
 ```
 
-`get_supabase_anon_client()` uses `current_app.config["SUPABASE_URL"]` and `current_app.config["SUPABASE_ANON_KEY"]` for validating Supabase Auth tokens. `get_supabase_service_client()` remains as a helper for connection tests and RLS verification, but is not used for primary business CRUD operations on portfolios / holdings / transactions. `get_*_client()` functions are cached on the Flask app. If you need to separate sessions across multiple users in tests, use a non-cached client creator such as `create_supabase_anon_client()`.
+`get_supabase_anon_client()` uses `current_app.config["SUPABASE_URL"]` and `current_app.config["SUPABASE_ANON_KEY"]` for validating Supabase Auth tokens. `get_supabase_service_client()` remains as a helper for connection tests and RLS verification. `get_*_client()` functions are cached on the Flask app. If you need to separate sessions across multiple users in tests, use a non-cached client creator such as `create_supabase_anon_client()`.
 
 ### Authentication Policy
 
 - React handles signup / login directly using Supabase Auth.
 - When React reads private tables directly, access is protected by Supabase access tokens and RLS.
 - When React calls Flask private APIs, include `Authorization: Bearer <access_token>` in the request header.
-- This branch is responsible for creating the Auth context on the Flask side.
-- Business DB read/write operations and ownership checks for holdings / transactions will be implemented using `g.current_user_id` in subsequent SQLAlchemy branches.
+- Flask validates the token and sets the user context via `app.auth.require_auth()`.
+- Business DB read/write operations and ownership checks for holdings, transactions, and cash balances are executed via SQLAlchemy using `g.current_user_id`.
 
 On the Flask side, `app.auth.require_auth()` validates the Supabase access token and, upon success, saves the following to the request context:
 
@@ -101,8 +101,6 @@ Use the user ID displayed when created by `scripts/create_test_user.py` as `DEBU
 
 When enabled, a warning log `AUTH_DISABLED=true: ...` will be output upon startup. In `FLASK_ENV=production`, it is forcibly disabled by configuration, so even if it remains in `.env`, it will have no effect in production. To revert, simply set `AUTH_DISABLED=false`.
 
-> Review note: This branch only prepares authentication; authorization checks and business DB writes will be implemented after merging with the SQLAlchemy branch.
-
 ### Supabase RLS
 
 Read policy for private tables:
@@ -124,7 +122,7 @@ asset_data_history
 currency_rate_history
 ```
 
-Logged-in users can read shared tables. Write policies will be organized along with backend DB implementation in the SQLAlchemy branch.
+Logged-in users can read shared tables. Private writes and table updates are handled through backend SQLAlchemy services authenticated with Supabase user context.
 
 ### Testing
 
@@ -146,11 +144,29 @@ To test portfolio creation API:
 .venv/bin/python -m unittest tests.test_portfolio_create
 ```
 
+To test cash deposits and withdrawals:
+
+```bash
+.venv/bin/python -m unittest tests.test_cash_transaction_create
+```
+
 To batch test portfolio read APIs:
 
 ```bash
 .venv/bin/python -m unittest tests.test_portfolio_summary tests.test_portfolio_holdings \
     tests.test_portfolio_allocation tests.test_portfolio_performance
+```
+
+To test transaction creation and transaction history search:
+
+```bash
+.venv/bin/python -m unittest tests.test_transaction_create tests.test_transaction_history
+```
+
+To test asset historical price and currency rate import services:
+
+```bash
+.venv/bin/python -m unittest tests.test_asset_history_import tests.test_currency_rate_import
 ```
 
 To verify Supabase connection and read permissions on all tables:
@@ -194,7 +210,7 @@ holdings
 transactions
 ```
 
-To run all tests:
+To run all unit tests:
 
 ```bash
 .venv/bin/python -W ignore::DeprecationWarning -m unittest discover -s tests
@@ -235,7 +251,7 @@ When `RUN_SUPABASE_REAL_USER_BOOTSTRAP_DATA=true`, temporary mock holdings are c
 
 ### Database (Supabase)
 
-The DB connects to Supabase PostgreSQL using Flask-SQLAlchemy. Connection information uses only `DATABASE_URL` in `.env`, taking the Connection string directly from Supabase Dashboard > Project Settings > Database (driver is psycopg v3, `sslmode=require` is required). Refer to [`.env.example`](.env.example) for format.
+The DB connects to Supabase PostgreSQL using Flask-SQLAlchemy. Connection information uses `DATABASE_URL` in `.env`, taking the Connection string directly from Supabase Dashboard > Project Settings > Database (driver is psycopg v3, `sslmode=require` is required). Refer to [`.env.example`](.env.example) for format.
 
 Schema changes are managed via Flask-Migrate (Alembic):
 
@@ -264,7 +280,7 @@ The generated [`openapi.yaml`](openapi.yaml) has been committed to the repositor
 
 **Schemas are the single source of truth for API design.** Updating `app/schemas/` will update specifications, validation, and Swagger UI altogether. Avoid manually editing specifications alone.
 
-**Request validation functions** even for unimplemented endpoints, allowing verification of input specs in Swagger UI's Try it out (501 if unimplemented, 422 if validation fails).
+**Request validation functions** for all active endpoints. Input specifications can be tested directly in Swagger UI's Try it out (422 if validation fails).
 
 ### Endpoints
 
@@ -273,17 +289,18 @@ All under `/api/v1`. Refer to [`API_DESIGN.md`](API_DESIGN.md) for design backgr
 | Method | Path | Tag | Description |
 | --- | --- | --- | --- |
 | POST | `/portfolios/` | portfolio | Create portfolio |
-| GET | `/portfolios/summary` | portfolio | Summary (acquisition value, market value, total assets, unrealized P&L) |
+| GET | `/portfolios/summary` | portfolio | Summary (cash balance, market value, total assets, unrealized P&L) |
+| POST | `/portfolios/capital` | portfolio | Cash deposit & withdrawal (updates cash balance) |
 | GET | `/portfolios/holdings` | portfolio | Holdings list |
-| GET | `/portfolios/allocation` | portfolio | Asset allocation (by category, currency, ticker) |
+| GET | `/portfolios/allocation` | portfolio | Asset allocation (by category, currency, ticker, sector) |
 | GET | `/portfolios/performance` | portfolio | Performance history chart |
-| GET | `/assets/{asset_id}/` | assets | Asset master info (deprecated) |
-| GET | `/assets/{asset_id}/price-history` | assets | Historical market prices (deprecated) |
+| GET | `/assets/{asset_id}/` | assets | Asset master info (deprecated, 501) |
+| GET | `/assets/{asset_id}/price-history` | assets | Historical market prices (deprecated, 501) |
 | GET | `/portfolios/transactions` | transactions | Search transaction history |
 | POST | `/transactions` | transactions | Register transaction (single) |
 | POST | `/transactions/batch` | transactions | Register transactions (batch) |
 
-`POST /portfolios/` accepts any `currency` (frontend default is `USD`) and optional `cash_balance`, returning only `message` on success. Returns `409 Conflict` if the user already has a portfolio. `cash_balance` is registered as a cash holding upon portfolio creation, treated with a quantity of `1`. Portfolios do not have a name property.
+`POST /portfolios/` accepts any `currency` (frontend default is `USD`) and optional `cash_balance`, returning only `message` on success. Returns `409 Conflict` if the user already has a portfolio. `cash_balance` is registered as a cash holding (`CASH-USD`) upon portfolio creation, treated with a quantity equal to `cash_balance` and average cost of `1.0`.
 
 ```json
 {
@@ -292,7 +309,17 @@ All under `/api/v1`. Refer to [`API_DESIGN.md`](API_DESIGN.md) for design backgr
 }
 ```
 
-`GET /portfolios/summary` returns a USD-denominated summary from the logged-in user's portfolio. `cash_balance` converts cash holding into USD for aggregation, while `total_market_value` and `total_return_percent` are calculated using non-cash holdings only. Market prices and FX rates are fetched from Yahoo Finance and not stored in the DB.
+`POST /portfolios/capital` registers cash deposits (`deposit`) and withdrawals (`withdrawal`), updating the user's cash balance. Returns `400 Bad Request` if withdrawal exceeds available cash balance.
+
+```json
+{
+  "transaction_type": "deposit",
+  "amount": 5000,
+  "currency": "USD"
+}
+```
+
+`GET /portfolios/summary` returns a USD-denominated summary from the logged-in user's portfolio. `cash_balance` converts cash holdings into USD for aggregation, while `total_market_value` and `total_return_percent` are calculated using non-cash holdings only. Market prices and FX rates are fetched from Yahoo Finance.
 
 `GET /portfolios/holdings` returns a list of non-cash holdings denominated in USD. Accepts `asset_type` (default `all`), `page`, and `per_page`. Does not accept `asset_id` or `search`; search is performed on the frontend. `items` returns current price, acquisition price, market value, daily gain/loss rate, and cumulative return rate. Current price and FX rates are retrieved from Yahoo Finance, and previous close price uses the latest `close_price` from `asset_data_history` where `price_date < today`. Holdings lacking required market data are excluded from the list and totals. `totals` aggregates across all matching holdings rather than paginated `items`.
 
@@ -300,20 +327,23 @@ All under `/api/v1`. Refer to [`API_DESIGN.md`](API_DESIGN.md) for design backgr
 
 `GET /portfolios/performance` returns performance charts in USD. Accepts `start_date`, `end_date`, `range`, and `interval`. `range` accepts `1d` / `1w` / `1m` / `3m` / `YTD` / `1y` / `all` (default `all`), and `interval` accepts `1d` / `1wk` / `1mo` (default `1d`). If explicit dates are provided, they take precedence and response `range` becomes `null`. Daily valuation is constructed from close prices in `asset_data_history`, and daily holding quantities are reconstructed by tracing transactions back from current holdings. Cash holdings are treated as constant throughout the period, and past FX rates are converted using current rates since historical FX rates are not stored. Returns `return_1d`, `return_1w`, `return_1m`, `return_3m`, `return_YTD`, `return_1y`, and `return_total`, each formatted as `{ amount, percent }`. `today` is calculated as the difference between today's close price and previous day's close price, and return for each period is calculated as the difference between today's close price and the starting close price of the period (e.g. 1 week ago for `1w`). Valuation series are constructed from inception (first transaction date) regardless of `range`, so narrowing display range does not change `return_total`.
 
-Filtering for `/transactions` includes `transaction_type`, `asset_type` (default `all`), `start_date`, and `end_date`. `asset_id` and `search` are not accepted. History retrieval returns `date`, `symbol`, `name`, `asset_type`, `quantity`, `transaction_type`, `executed_price`, `executed_unit_price`, and `realized_pl` in `items`. `realized_pl` is calculated for `sell` only (`null` for `buy`). `totals` returns `realized_pl`, `realized_pl_percent`, and `currency` for all records matching filters prior to pagination. Single and batch creation items accept `ticker`, `name`, `position`, `order_type`, `transaction_type`, and `quantity`, returning execution summary of `date`, `symbol`, `name`, `executed_price`, `executed_unit_price`, and `asset_type` as confirmation of created transactions on success. When adding a new asset, information fetched from Yahoo Finance API is registered into `asset_master` before creating transactions. Transaction registration always updates the `CASH-USD` holding. Non-USD tickers have execution amounts converted to USD, subtracting for `buy` and adding for `sell`.
+`GET /portfolios/transactions` filters transaction history by `transaction_type`, `asset_type` (default `all`), `start_date`, and `end_date`. Returns `date`, `symbol`, `name`, `asset_type`, `quantity`, `transaction_type`, `executed_price`, `executed_unit_price`, and `realized_pl` in `items`. `realized_pl` is calculated for `sell` only (`null` for `buy`). `totals` returns `realized_pl`, `realized_pl_percent`, and `currency` for all records matching filters prior to pagination.
+
+`POST /transactions` and `POST /transactions/batch` register single or multiple buy/sell transactions. Request items accept `ticker`, `name`, `transaction_type` (`buy`/`sell`), `trade_date`, `quantity`, and `executed_price` (or `price`). When adding a new asset, ticker information fetched from Yahoo Finance API is automatically registered into `asset_master` before creating transactions. Executing a `buy` transaction validates available cash balance, updates average cost and quantity for the holding, and automatically deducts the USD-converted purchase cost from `CASH-USD`. Executing a `sell` transaction validates that current holding quantity is sufficient, updates quantity, calculates realized P&L, and automatically adds the USD-converted proceeds to `CASH-USD`.
 
 ### Design Notes
 
-- **No actual brokerage order execution.** Buying/selling only records transaction history and updates holdings balance and cash holding.
-- **Owner is resolved from login information.** Private APIs do not receive `user_id` or `portfolio_id` from client. Internally, backend resolves target data using Supabase Auth user id and `portfolio.user_id`.
-- **`portfolio_id` is not returned in responses.** Private portfolio data is assumed to be resolved from login context and is not exposed to client.
-- **Private data read directly from React is protected by Supabase RLS.** Critical writes and ownership checks are deferred to upcoming SQLAlchemy implementation.
+- **No actual brokerage order execution.** Buying/selling only records transaction history, updates holdings balance, and adjusts cash balance (`CASH-USD`).
+- **Owner is resolved from login context.** Private APIs do not receive `user_id` or `portfolio_id` from client. Internally, backend resolves target data using Supabase Auth user id (`g.current_user_id`) and `portfolio.user_id`.
+- **`portfolio_id` is not returned in responses.** Private portfolio data is resolved from login context and is not exposed to client.
+- **Private data access and writes.** Protected by Supabase Auth token validation in Flask (`require_auth()`) and Supabase RLS on direct database reads. Backend performs DB reads/writes via SQLAlchemy.
 - **`current_price` is not stored.** Market prices originate from Yahoo Finance or `asset_data_history` and are not written to Supabase `holdings`.
-- **`cash_balance` is handled as a cash holding.** Not stored in portfolio table; registered in holdings with quantity `1` using asset of `asset_type=cash`.
+- **`cash_balance` is handled as a cash holding.** Stored in `holdings` with asset `CASH-USD` (`asset_type=cash`). Deposits and withdrawals are processed via `POST /portfolios/capital`.
 - **`holdings` list returns investment holdings only.** Cash is handled in summary `cash_balance` and not included in holdings list.
 - **Batch registration validates all items before updating.** If even 1 item is invalid, nothing is updated.
+- **Automatic historical price and FX backfills.** Registering a transaction automatically schedules or imports missing historical close prices (`asset_data_history`) and exchange rates (`currency_rate_history`) needed for performance calculation.
 
-Supabase table definitions and future implementation policies are summarized in [`API_DESIGN.md`](API_DESIGN.md).
+Supabase table definitions and detailed API design policies are summarized in [`API_DESIGN.md`](API_DESIGN.md).
 
 ### Project Structure
 
@@ -323,10 +353,14 @@ app/
 │   ├── portfolio.py   Summary / Allocation / Performance chart
 │   ├── asset.py       Asset master / Price history
 │   ├── holding.py     Holdings balance
-│   ├── transaction.py Transaction history
+│   ├── transaction.py Transaction history & creation schemas
+│   ├── user.py        User schema
 │   └── common.py      Common validators, pagination / date range
 ├── api/           Endpoint definitions (Paths, I/O, service calls)
-│   └── parameters.py  OpenAPI definitions for path parameters
+│   ├── assets.py      Asset master endpoints (deprecated)
+│   ├── parameters.py  OpenAPI definitions for path parameters
+│   ├── portfolios.py  Portfolio endpoints (Summary, Holdings, Allocation, Performance, Capital)
+│   └── transactions.py Transaction endpoints (History, Single Create, Batch Create)
 ├── models/        SQLAlchemy models (Supabase public schema)
 │   ├── user.py        public.users
 │   ├── portfolio.py   portfolio
@@ -337,22 +371,30 @@ app/
 ├── auth.py        Validates Supabase access token and sets g.current_user_id
 ├── enums.py       TransactionType / Interval
 ├── services/
-│   ├── common.py      Service constants, authenticated user resolution, Decimal conversions
-│   ├── market_data.py Fetches prices, FX, and sector from Yahoo Finance
-│   ├── performance.py Business logic for performance charts (valuation series and period returns)
-│   ├── portfolio.py   Business logic for portfolio / summary / holdings / allocation
-│   └── supabase.py    Creates Supabase client from Flask app.config
+│   ├── asset_history.py           Backfills & imports historical asset close prices
+│   ├── common.py                  Service constants, authenticated user resolution, Decimal conversions
+│   ├── currency_rate_history.py   Backfills & imports historical currency rates
+│   ├── market_data.py             Fetches prices, FX, and sector from Yahoo Finance
+│   ├── performance.py             Business logic for performance charts (valuation series and period returns)
+│   ├── portfolio.py               Business logic for portfolio / summary / holdings / allocation
+│   ├── supabase.py                Creates Supabase client from Flask app.config
+│   └── transaction.py             Business logic for transaction search, buy/sell creation, cash deposit/withdrawal
 └── config.py      Configuration (Includes OpenAPI / Supabase settings)
 
 tests/
 ├── config.py
+├── test_asset_history_import.py
 ├── test_auth.py
+├── test_cash_transaction_create.py
 ├── test_config.py
+├── test_currency_rate_import.py
 ├── test_portfolio_allocation.py
 ├── test_portfolio_create.py
 ├── test_portfolio_holdings.py
 ├── test_portfolio_performance.py
 ├── test_portfolio_summary.py
+├── test_transaction_create.py
+├── test_transaction_history.py
 └── database_connection/
     ├── helpers.py
     ├── test_sqlalchemy_connection.py
@@ -360,11 +402,15 @@ tests/
     └── test_supabase_user_rls.py
 
 scripts/
-├── create_test_user.py  Prepares Supabase Auth test user and public.users row
-└── generate_token.py    Generates access token for manual Swagger UI testing
+├── create_test_user.py               Prepares Supabase Auth test user and public.users row
+├── generate_token.py                 Generates access token for manual Swagger UI testing
+├── import_asset_history.py           Imports asset historical prices from Yahoo Finance
+├── import_currency_rate_history.py   Imports currency rate history from Yahoo Finance
+└── seed_asset_data_history.py        Seeds asset price history data for local testing
 ```
 
 ### Unimplemented Features
 
-Actual API business logic for assets and transactions.
-Read APIs for summary / holdings / allocation / performance, Supabase Auth token validation, Yahoo Finance price/FX/sector fetching, SQLAlchemy connection, and DB migration management are already implemented.
+Only the deprecated legacy asset endpoints (`GET /api/v1/assets/{asset_id}/` and `GET /api/v1/assets/{asset_id}/price-history`) return `501 Not Implemented`.
+
+All core business logic for portfolio summary, holdings list, asset allocation, performance charting, cash deposit/withdrawal, single and batch buy/sell transaction creation, transaction history search, and background asset/FX history synchronization are fully implemented.
