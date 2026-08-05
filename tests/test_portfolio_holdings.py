@@ -6,7 +6,7 @@ import uuid
 from unittest.mock import patch
 
 from flask import g
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 from app import create_app
 from app.extensions import db
@@ -24,6 +24,11 @@ from app.models import (
 class FakeMarketData:
     prices = {}
     fx_rates = {}
+    batch_calls = []
+
+    def latest_prices(self, tickers):
+        self.batch_calls.append(tuple(tickers))
+        return {ticker: self.prices.get(ticker) for ticker in tickers}
 
     def latest_price(self, ticker):
         return self.prices.get(ticker)
@@ -42,6 +47,7 @@ class PortfolioHoldingsEndpointTest(unittest.TestCase):
         self.client = self.app.test_client()
         self.user_id = uuid.uuid4()
         self.user_email = "portfolio-owner@example.com"
+        FakeMarketData.batch_calls = []
 
         self.app_context = self.app.app_context()
         self.app_context.push()
@@ -319,6 +325,9 @@ class PortfolioHoldingsEndpointTest(unittest.TestCase):
         self.assertEqual(item["total_market_value"], 30)
         self.assertEqual(item["today_return_percent"], 50)
         self.assertEqual(item["total_return_percent"], 50)
+        self.assertEqual(
+            FakeMarketData.batch_calls, [("7203.T", "JPYUSD=X")]
+        )
 
     def test_holdings_totals_cover_all_valid_items_not_current_page(self):
         portfolio = self._create_portfolio()
@@ -344,6 +353,41 @@ class PortfolioHoldingsEndpointTest(unittest.TestCase):
         self.assertEqual(data["totals"]["market_value"], 600)
         self.assertEqual(data["totals"]["day_change"], 450)
         self.assertEqual(data["totals"]["day_change_percent"], 300)
+
+    def test_holdings_loads_relations_and_previous_closes_in_one_query(self):
+        portfolio = self._create_portfolio()
+        apple = self._asset("AAPL", "Apple Inc.", self.stock_type, self.usd)
+        toyota = self._asset(
+            "7203.T", "Toyota Motor Corp.", self.stock_type, self.jpy
+        )
+        self._holding(portfolio, apple, quantity=1, average_cost=80)
+        self._holding(portfolio, toyota, quantity=1, average_cost=1000)
+        self._history(apple, 90)
+        self._history(toyota, 1200)
+        FakeMarketData.prices = {"AAPL": 100, "7203.T": 1500}
+        FakeMarketData.fx_rates = {"JPY": 0.01}
+        select_statements = []
+
+        def record_select(_conn, _cursor, statement, _parameters, _context, _many):
+            if statement.lstrip().upper().startswith("SELECT"):
+                select_statements.append(statement)
+
+        # Clear the identity map so lazy relationship loads would be observable.
+        db.session.remove()
+        event.listen(db.engine, "before_cursor_execute", record_select)
+        try:
+            response = self._get_holdings()
+        finally:
+            event.remove(db.engine, "before_cursor_execute", record_select)
+
+        self.assertEqual(response.status_code, 200)
+        # One query resolves the portfolio; the other loads all holding data.
+        self.assertEqual(len(select_statements), 2)
+        holdings_query = select_statements[1].lower()
+        self.assertIn("join asset_master", holdings_query)
+        self.assertIn("join asset_type", holdings_query)
+        self.assertIn("join currency", holdings_query)
+        self.assertIn("asset_data_history", holdings_query)
 
     def test_holdings_filters_asset_type(self):
         portfolio = self._create_portfolio()
