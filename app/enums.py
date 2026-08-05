@@ -6,12 +6,16 @@ import enum
 class TransactionType(enum.Enum):
     """取引種別。
 
-    - ``buy``  : 買い付け。保有数量を増やし、平均取得単価を再計算する。
-    - ``sell`` : 売却。保有数量を減らす。保有数量を超える売却は 400。
+    - ``buy``        : 買い付け。保有数量を増やし、平均取得単価を再計算する。
+    - ``sell``       : 売却。保有数量を減らす。保有数量を超える売却は 400。
+    - ``deposit``    : 入金。現金残高を増やすだけで、他の holding には影響しない。
+    - ``withdrawal`` : 出金。現金残高を減らす。残高を超える出金は 400。
     """
 
     BUY = "buy"
     SELL = "sell"
+    DEPOSIT = "deposit"
+    WITHDRAWAL = "withdrawal"
 
 
 class Interval(enum.Enum):
