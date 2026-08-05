@@ -125,6 +125,7 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
                 price NUMERIC NOT NULL,
                 fees NUMERIC NOT NULL DEFAULT 0,
                 average_cost_before NUMERIC,
+                cash_balance_before NUMERIC,
                 created_at DATETIME NOT NULL,
                 transaction_type TEXT NOT NULL DEFAULT ''
             )

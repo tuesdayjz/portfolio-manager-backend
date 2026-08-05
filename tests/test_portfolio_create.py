@@ -99,6 +99,7 @@ class PortfolioCreateEndpointTest(unittest.TestCase):
                 price NUMERIC NOT NULL,
                 fees NUMERIC NOT NULL,
                 average_cost_before NUMERIC,
+                cash_balance_before NUMERIC,
                 created_at DATETIME NOT NULL,
                 transaction_type TEXT NOT NULL
             )

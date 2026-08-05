@@ -1,6 +1,15 @@
 """取引履歴のスキーマ。"""
 
-from marshmallow import Schema, fields, validate
+import datetime
+
+from marshmallow import (
+    Schema,
+    ValidationError,
+    fields,
+    pre_load,
+    validate,
+    validates_schema,
+)
 
 from app.enums import TransactionType
 from app.schemas.common import (
@@ -44,11 +53,42 @@ class TransactionItemSchema(Schema):
     transaction_type = fields.Enum(
         TransactionType, by_value=True, required=True, metadata={"example": "buy"}
     )
-    quantity = fields.Float(
-        required=True, validate=POSITIVE,
-        # apispec は Range の min_inclusive を見ないので exclusiveMinimum は手で入れる
-        metadata={"example": 5.4, "exclusiveMinimum": True},
+    quantity = fields.Int(
+        required=True,
+        validate=validate.Range(min=1),
+        metadata={"example": 5},
     )
+    trade_date = fields.Date(
+        load_default=lambda: datetime.datetime.now(datetime.timezone.utc).date(),
+        metadata={"description": "Trade date", "example": "2026-05-26"},
+    )
+    price = fields.Float(
+        validate=POSITIVE,
+        metadata={
+            "description": (
+                "Executed unit price for historical trades. Same-day trades use "
+                "market price."
+            ),
+            "example": 2980.5,
+            "exclusiveMinimum": True,
+        },
+    )
+
+    @pre_load
+    def reject_non_integer_quantity(self, data, **kwargs):
+        quantity = data.get("quantity") if isinstance(data, dict) else None
+        if isinstance(quantity, bool) or not isinstance(quantity, int):
+            raise ValidationError({"quantity": ["quantity must be an integer."]})
+        return data
+
+    @validates_schema
+    def check_not_future_date(self, data, **kwargs):
+        trade_date = data.get("trade_date")
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        if trade_date and trade_date > today:
+            raise ValidationError(
+                {"trade_date": ["trade_date cannot be later than today."]}
+            )
 
 
 class TransactionSchema(Schema):
