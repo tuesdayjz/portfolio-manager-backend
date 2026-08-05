@@ -29,13 +29,14 @@ ASSET_NOT_TRADABLE_ON_DATE_MESSAGE = (
 )
 
 # Yahoo Finance の `quoteType` -> `asset_type.asset_type`。
-# ここで判別できない資産クラス（bond / reit など）は未対応。取引前に
+# ここで判別できない資産クラス（reit など）は未対応。取引前に
 # asset_master へ手動登録しておく必要がある。
 QUOTE_TYPE_TO_ASSET_TYPE = {
     "EQUITY": "stock",
     "ETF": "etf",
     "MUTUALFUND": "fund",
     "CRYPTOCURRENCY": "crypto",
+    "BOND": "bond",
 }
 
 

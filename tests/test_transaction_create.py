@@ -34,6 +34,7 @@ class FakeMarketData:
         "MSFT": {"quote_type": "EQUITY", "currency": "USD"},
         "7203.T": {"quote_type": "EQUITY", "currency": "JPY"},
         "IPO": {"quote_type": "EQUITY", "currency": "USD"},
+        "BONDX": {"quote_type": "BOND", "currency": "USD"},
         "UNKNOWNX": None,
     }
     listed_from = {}
@@ -74,12 +75,14 @@ class TransactionCreateEndpointTest(unittest.TestCase):
             "MSFT": decimal.Decimal("300"),
             "7203.T": decimal.Decimal("3000"),
             "IPO": decimal.Decimal("50"),
+            "BONDX": decimal.Decimal("98.75"),
         }
         FakeMarketData.latest_closes = {
             "AAPL": decimal.Decimal("145"),
             "MSFT": decimal.Decimal("295"),
             "7203.T": decimal.Decimal("2900"),
             "IPO": decimal.Decimal("45"),
+            "BONDX": decimal.Decimal("98.5"),
         }
         FakeMarketData.fx_rates = {"JPY": decimal.Decimal("0.01"), "USD": decimal.Decimal("1")}
         FakeMarketData.historical_fx_rates = {}
@@ -348,6 +351,29 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         transaction = Transactions.query.one()
         self.assertEqual(float(transaction.average_cost_before), 0.0)
         self.assertEqual(float(transaction.cash_balance_before), 10000.0)
+
+    def test_create_transaction_buy_bond_resolves_bond_asset_type(self):
+        bond_type = AssetType(id=uuid.uuid4(), asset_type="bond")
+        db.session.add(bond_type)
+        db.session.commit()
+
+        response = self._post_transaction(
+            self._buy_payload("BONDX", "US Treasury 10-Year Note", 10)
+        )
+
+        self.assertEqual(response.status_code, 201)
+        body = response.get_json()
+        self.assertEqual(body["asset_type"], "bond")
+
+        asset = AssetMaster.query.filter_by(ticker="BONDX").one()
+        self.assertEqual(asset.asset_type.asset_type, "bond")
+
+    def test_create_transaction_buy_bond_without_asset_type_row_returns_400(self):
+        response = self._post_transaction(
+            self._buy_payload("BONDX", "US Treasury 10-Year Note", 10)
+        )
+
+        self.assertEqual(response.status_code, 400)
 
     def test_create_transaction_buy_jpy_asset_updates_usd_cash(self):
         response = self._post_transaction(
