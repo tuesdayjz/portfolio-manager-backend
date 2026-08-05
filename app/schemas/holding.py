@@ -33,16 +33,26 @@ class HoldingSchema(Schema):
         },
     )
     quantity = fields.Float(
-        required=True, validate=NON_NEGATIVE,
-        metadata={"description": "Current holding quantity", "example": 8.5},
+        required=True,
+        metadata={
+            "description": (
+                "Current holding quantity. Negative for a short position."
+            ),
+            "example": 8.5,
+        },
     )
     average_purchase_price = fields.Float(
         required=True, validate=NON_NEGATIVE,
         metadata={"description": "平均取得単価", "example": 1095.80},
     )
     total_purchase_price = fields.Float(
-        required=True, validate=NON_NEGATIVE,
-        metadata={"description": "合計取得価額", "example": 9314.30},
+        required=True,
+        metadata={
+            "description": (
+                "合計取得価額（average_purchase_price × quantity）。ショートは負。"
+            ),
+            "example": 9314.30,
+        },
     )
     current_price = fields.Float(
         required=True, validate=NON_NEGATIVE,
@@ -52,9 +62,9 @@ class HoldingSchema(Schema):
         },
     )
     total_market_value = fields.Float(
-        required=True, validate=NON_NEGATIVE,
+        required=True,
         metadata={
-            "description": "評価額（quantity × current_price）",
+            "description": "評価額（quantity × current_price）。ショートは負。",
             "example": 25334.25,
         },
     )
@@ -85,8 +95,11 @@ class HoldingsTotalSchema(Schema):
     """
 
     market_value = fields.Float(
-        required=True, validate=NON_NEGATIVE,
-        metadata={"description": "評価額の合計", "example": 4220000},
+        required=True,
+        metadata={
+            "description": "評価額の合計。ショートが多いと負になり得る。",
+            "example": 4220000,
+        },
     )
     day_change = fields.Float(
         required=True,

@@ -55,6 +55,9 @@ class Transactions(db.Model):
     transaction_type: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("''::text")
     )
+    position: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'long'")
+    )
 
     holding: Mapped["Holdings"] = relationship(
         "Holdings", back_populates="transactions"

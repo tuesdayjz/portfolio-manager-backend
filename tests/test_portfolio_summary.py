@@ -121,7 +121,8 @@ class PortfolioSummaryEndpointTest(unittest.TestCase):
                 average_cost_before NUMERIC,
                 cash_balance_before NUMERIC,
                 created_at DATETIME NOT NULL,
-                transaction_type TEXT NOT NULL
+                transaction_type TEXT NOT NULL,
+                position TEXT NOT NULL DEFAULT 'long'
             )
             """,
             """
@@ -269,10 +270,37 @@ class PortfolioSummaryEndpointTest(unittest.TestCase):
         self.assertEqual(data["currency"], "USD")
         self.assertEqual(data["currency_symbol"], "$")
         self.assertEqual(data["cash_balance"], 1250000)
+        # Unlike the performance graph, the summary's total_market_value
+        # includes cash (it's meant to read as total net worth).
         self.assertEqual(data["total_market_value"], 1251200)
         self.assertAlmostEqual(
             data["total_return_percent"], 200 / 1251000 * 100, places=6
         )
+
+    def test_summary_excludes_short_position_from_total_market_value(self):
+        portfolio = self._create_portfolio()
+        cash = self._asset("CASH-USD", self.cash_type, self.usd)
+        stock = self._asset("AAPL", self.stock_type, self.usd)
+        self._holding(portfolio, cash, quantity=1, average_cost=1000)
+        self._holding(portfolio, stock, quantity=-10, average_cost=80)
+        self._prices(
+            stock,
+            {
+                self.today - datetime.timedelta(days=1): 90,
+                self.today: 100,
+            },
+        )
+        FakeMarketData.fx_rates = {}
+
+        response = self._get_summary()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["cash_balance"], 1000)
+        # The short is a liability, not an asset - it must not move total
+        # assets (which otherwise includes cash, hence == cash_balance here).
+        self.assertEqual(data["total_market_value"], 1000)
+        self.assertEqual(data["total_short_liability"], 1000)
 
     def test_summary_converts_non_usd_stock_to_usd(self):
         portfolio = self._create_portfolio()
