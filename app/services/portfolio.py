@@ -185,6 +185,8 @@ def get_portfolio_holdings(args, market_data=None):
         asset_type_value = (asset_type or "").lower()
         if asset_type_value == "cash":
             continue
+        if quantity <= 0:
+            continue
         if asset_type_filter != "all" and asset_type_value != asset_type_filter:
             continue
         currency = asset_currency(asset)

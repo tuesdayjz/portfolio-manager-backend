@@ -338,6 +338,24 @@ class PortfolioHoldingsEndpointTest(unittest.TestCase):
         self.assertEqual([item["ticker"] for item in data["items"]], ["AAPL"])
         self.assertEqual(data["pagination"]["total_items"], 1)
 
+    def test_holdings_excludes_fully_sold_position(self):
+        """A holding left at quantity 0 after a full sell (the row isn't deleted,
+        just zeroed) shouldn't reappear in the positions list."""
+        portfolio = self._create_portfolio()
+        stock = self._asset("AAPL", "Apple Inc.", self.stock_type, self.usd)
+        self._holding(portfolio, stock, quantity=0, average_cost=80)
+        self._history(stock, 90)
+        FakeMarketData.prices = {"AAPL": 100}
+        FakeMarketData.fx_rates = {}
+
+        response = self._get_holdings()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["items"], [])
+        self.assertEqual(data["totals"]["market_value"], 0)
+        self.assertEqual(data["pagination"]["total_items"], 0)
+
     def test_holdings_returns_empty_for_cash_filter(self):
         portfolio = self._create_portfolio()
         cash = self._asset("CASH-USD", "Cash USD", self.cash_type, self.usd)
