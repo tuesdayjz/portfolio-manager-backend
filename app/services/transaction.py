@@ -19,6 +19,7 @@ from app.services.market_data import YahooFinanceMarketData
 
 PORTFOLIO_NOT_FOUND_MESSAGE = "The specified portfolio does not exist"
 OVERSELL_MESSAGE = "Cannot sell more than current holding"
+INSUFFICIENT_FUNDS_MESSAGE = "Cannot buy more than available cash balance"
 PRICE_UNAVAILABLE_MESSAGE = "Unable to fetch a live price for this ticker."
 FX_UNAVAILABLE_MESSAGE = "Unable to fetch an FX rate for this ticker currency."
 UNSUPPORTED_ASSET_MESSAGE = "Unable to register this ticker."
@@ -247,6 +248,8 @@ def _create_transaction_line(
         holding.quantity = existing_quantity - quantity
         cash_holding.average_cost = cash_balance + trade_amount_usd
     else:
+        if trade_amount_usd > cash_balance:
+            abort(400, message=INSUFFICIENT_FUNDS_MESSAGE)
         new_quantity = existing_quantity + quantity
         holding.average_cost = (
             existing_quantity * existing_average_cost + quantity * price
