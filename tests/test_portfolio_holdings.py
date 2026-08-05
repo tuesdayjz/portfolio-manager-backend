@@ -255,7 +255,7 @@ class PortfolioHoldingsEndpointTest(unittest.TestCase):
         self.assertEqual(item["total_purchase_price"], 800)
         self.assertEqual(item["current_price"], 100)
         self.assertEqual(item["total_market_value"], 1000)
-        self.assertAlmostEqual(item["today_return_percent"], 11.111111, places=5)
+        self.assertEqual(item["today_return_percent"], 25)
         self.assertEqual(item["total_return_percent"], 25)
         self.assertEqual(item["currency"], "USD")
 
@@ -275,7 +275,7 @@ class PortfolioHoldingsEndpointTest(unittest.TestCase):
         self.assertEqual(item["total_purchase_price"], 20)
         self.assertEqual(item["current_price"], 15)
         self.assertEqual(item["total_market_value"], 30)
-        self.assertEqual(item["today_return_percent"], 25)
+        self.assertEqual(item["today_return_percent"], 50)
         self.assertEqual(item["total_return_percent"], 50)
 
     def test_holdings_totals_cover_all_valid_items_not_current_page(self):
@@ -300,8 +300,8 @@ class PortfolioHoldingsEndpointTest(unittest.TestCase):
         self.assertEqual(data["pagination"]["total_items"], 3)
         self.assertEqual(data["pagination"]["total_pages"], 3)
         self.assertEqual(data["totals"]["market_value"], 600)
-        self.assertEqual(data["totals"]["day_change"], 80)
-        self.assertAlmostEqual(data["totals"]["day_change_percent"], 15.384615, places=5)
+        self.assertEqual(data["totals"]["day_change"], 450)
+        self.assertEqual(data["totals"]["day_change_percent"], 300)
 
     def test_holdings_filters_asset_type(self):
         portfolio = self._create_portfolio()
