@@ -399,13 +399,23 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         asset = AssetMaster.query.filter_by(ticker="ZT=F").one()
         self.assertEqual(asset.asset_type.asset_type, "bond")
 
-    def test_create_transaction_buy_unlisted_future_returns_400(self):
-        """`CL=F` (crude oil futures) is also `quote_type=FUTURE` but isn't on the
-        manual bond allowlist, so it stays unsupported like any other future."""
-        bond_type = AssetType(id=uuid.uuid4(), asset_type="bond")
-        db.session.add(bond_type)
+    def test_create_transaction_buy_commodity_future_resolves_future_asset_type(self):
+        """`CL=F` (crude oil futures) is `quote_type=FUTURE` and isn't on the manual
+        bond allowlist, so it resolves to "future" like any other non-Treasury future."""
+        future_type = AssetType(id=uuid.uuid4(), asset_type="future")
+        db.session.add(future_type)
         db.session.commit()
 
+        response = self._post_transaction(self._buy_payload("CL=F", "Crude Oil Futures", 5))
+
+        self.assertEqual(response.status_code, 201)
+        body = response.get_json()
+        self.assertEqual(body["asset_type"], "future")
+
+        asset = AssetMaster.query.filter_by(ticker="CL=F").one()
+        self.assertEqual(asset.asset_type.asset_type, "future")
+
+    def test_create_transaction_buy_future_without_asset_type_row_returns_400(self):
         response = self._post_transaction(self._buy_payload("CL=F", "Crude Oil Futures", 5))
 
         self.assertEqual(response.status_code, 400)
