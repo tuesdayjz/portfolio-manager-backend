@@ -22,6 +22,11 @@ class FakeMarketData:
         "MSFT": decimal.Decimal("300"),
         "7203.T": decimal.Decimal("3000"),
     }
+    latest_closes = {
+        "AAPL": decimal.Decimal("145"),
+        "MSFT": decimal.Decimal("295"),
+        "7203.T": decimal.Decimal("2900"),
+    }
     fx_rates = {"JPY": decimal.Decimal("0.01"), "USD": decimal.Decimal("1")}
     historical_fx_rates = {}
     meta = {
@@ -36,6 +41,12 @@ class FakeMarketData:
 
     def latest_price(self, ticker):
         return self.prices.get(ticker)
+
+    def today_order_price(self, ticker):
+        price = self.latest_price(ticker)
+        if price is not None:
+            return price
+        return self.latest_closes.get(ticker)
 
     def fx_to_usd(self, currency):
         return self.fx_rates.get((currency or "USD").upper())
@@ -63,6 +74,12 @@ class TransactionCreateEndpointTest(unittest.TestCase):
             "MSFT": decimal.Decimal("300"),
             "7203.T": decimal.Decimal("3000"),
             "IPO": decimal.Decimal("50"),
+        }
+        FakeMarketData.latest_closes = {
+            "AAPL": decimal.Decimal("145"),
+            "MSFT": decimal.Decimal("295"),
+            "7203.T": decimal.Decimal("2900"),
+            "IPO": decimal.Decimal("45"),
         }
         FakeMarketData.fx_rates = {"JPY": decimal.Decimal("0.01"), "USD": decimal.Decimal("1")}
         FakeMarketData.historical_fx_rates = {}
@@ -708,15 +725,44 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         self.assertEqual(Transactions.query.count(), 0)
         self.assertEqual(self._cash_balance(), 10000.0)
 
-    def test_create_transaction_rejects_today_when_market_closed(self):
+    def test_create_transaction_today_closed_uses_latest_close_when_price_omitted(self):
         today = datetime.datetime.now(datetime.timezone.utc).date()
         FakeMarketData.closed_dates = {today}
+        FakeMarketData.prices["AAPL"] = None
+        FakeMarketData.latest_closes["AAPL"] = decimal.Decimal("145")
         payload = self._buy_payload("AAPL", "Apple Inc.", 1)
-        payload["price"] = 150
 
         response = self._post_transaction(payload)
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 201)
+        transaction = Transactions.query.one()
+        self.assertEqual(float(transaction.price), 145.0)
+        self.assertEqual(self._cash_balance(), 9855.0)
+
+    def test_create_transaction_today_closed_uses_request_price_when_present(self):
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        FakeMarketData.closed_dates = {today}
+        FakeMarketData.prices["AAPL"] = None
+        payload = self._buy_payload("AAPL", "Apple Inc.", 1)
+        payload["price"] = 125
+
+        response = self._post_transaction(payload)
+
+        self.assertEqual(response.status_code, 201)
+        transaction = Transactions.query.one()
+        self.assertEqual(float(transaction.price), 125.0)
+        self.assertEqual(self._cash_balance(), 9875.0)
+
+    def test_create_transaction_today_without_price_or_latest_close_returns_502(self):
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        FakeMarketData.closed_dates = {today}
+        FakeMarketData.prices["AAPL"] = None
+        FakeMarketData.latest_closes["AAPL"] = None
+        payload = self._buy_payload("AAPL", "Apple Inc.", 1)
+
+        response = self._post_transaction(payload)
+
+        self.assertEqual(response.status_code, 502)
         self.assertEqual(Transactions.query.count(), 0)
         self.assertEqual(self._cash_balance(), 10000.0)
 

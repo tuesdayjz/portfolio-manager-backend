@@ -8,6 +8,7 @@ class YahooFinanceMarketData:
 
     def __init__(self):
         self._prices = {}
+        self._latest_closes = {}
         self._fx_rates = {}
         self._historical_fx_rates = {}
         self._asset_tradability = {}
@@ -21,6 +22,22 @@ class YahooFinanceMarketData:
         if ticker not in self._prices:
             self._prices[ticker] = self._fetch_latest_price(ticker)
         return self._prices[ticker]
+
+    def today_order_price(self, ticker):
+        """Return live price when available, otherwise the latest available close."""
+
+        price = self.latest_price(ticker)
+        if price is not None:
+            return price
+        return self.latest_close(ticker)
+
+    def latest_close(self, ticker):
+        ticker = (ticker or "").strip()
+        if not ticker:
+            return None
+        if ticker not in self._latest_closes:
+            self._latest_closes[ticker] = self._fetch_latest_close(ticker)
+        return self._latest_closes[ticker]
 
     def fx_to_usd(self, currency):
         currency = (currency or "USD").strip().upper()
@@ -95,6 +112,23 @@ class YahooFinanceMarketData:
             import yfinance as yf
 
             history = yf.Ticker(ticker).history(period="5d")
+        except Exception:
+            return None
+
+        try:
+            closes = history["Close"].dropna()
+        except Exception:
+            return None
+
+        if closes.empty:
+            return None
+        return _decimal_or_none(closes.iloc[-1])
+
+    def _fetch_latest_close(self, ticker):
+        try:
+            import yfinance as yf
+
+            history = yf.Ticker(ticker).history(period="10d", interval="1d")
         except Exception:
             return None
 

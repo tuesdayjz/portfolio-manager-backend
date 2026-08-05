@@ -123,6 +123,10 @@ class TransactionSchema(Schema):
 class TransactionHistoryItemSchema(Schema):
     """取引履歴 1 件。作成レスポンスより UI 一覧向けの情報を多く返す。"""
 
+    transaction_id = fields.Str(
+        required=True,
+        metadata={"description": "取引 id", "example": "b93f26c4-66b3-4069-a93a-1f94f1828921"},
+    )
     date = fields.Date(
         required=True,
         metadata={"description": "取引日", "example": "2026-05-26"},

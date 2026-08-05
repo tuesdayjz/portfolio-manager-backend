@@ -19,7 +19,7 @@ from app.services.market_data import YahooFinanceMarketData
 
 PORTFOLIO_NOT_FOUND_MESSAGE = "The specified portfolio does not exist"
 OVERSELL_MESSAGE = "Cannot sell more than current holding"
-INSUFFICIENT_CASH_MESSAGE = "Cannot buy more than current cash balance"
+INSUFFICIENT_FUNDS_MESSAGE = "Cannot buy more than available cash balance"
 PRICE_UNAVAILABLE_MESSAGE = "Unable to fetch a live price for this ticker."
 FX_UNAVAILABLE_MESSAGE = "Unable to fetch an FX rate for this ticker currency."
 UNSUPPORTED_ASSET_MESSAGE = "Unable to register this ticker."
@@ -205,6 +205,7 @@ def _transaction_history_item(transaction, holding, asset, asset_type):
     )
 
     return {
+        "transaction_id": str(transaction.id),
         "date": transaction.trade_date,
         "symbol": asset.ticker,
         "name": asset.name,
@@ -305,7 +306,7 @@ def _create_transaction_line(
             cash_holding.average_cost = cash_balance + trade_amount_usd
         else:
             if trade_amount_usd > cash_balance:
-                abort(400, message=INSUFFICIENT_CASH_MESSAGE)
+                abort(400, message=INSUFFICIENT_FUNDS_MESSAGE)
             if existing_quantity == 0:
                 transaction_average_cost_before = decimal.Decimal("0")
             new_quantity = existing_quantity + quantity
@@ -353,10 +354,14 @@ def _item_price(item, asset, market_data, today, trade_date):
     price = item.get("price")
     if price is not None:
         return _decimal_or_none(price)
+    if trade_date == today and hasattr(market_data, "today_order_price"):
+        return _decimal_or_none(market_data.today_order_price(asset.ticker))
     return _decimal_or_none(market_data.latest_price(asset.ticker))
 
 
 def _ensure_asset_tradable_on_date(asset, trade_date, today, market_data):
+    if trade_date >= today:
+        return
     if not hasattr(market_data, "asset_tradable_on"):
         return
     if not market_data.asset_tradable_on(asset.ticker, trade_date):
@@ -408,7 +413,7 @@ def _replay_portfolio_transactions(portfolio_id, market_data, today, starting_ca
             cash_balance += trade_amount_usd
         else:
             if trade_amount_usd > cash_balance:
-                abort(400, message=INSUFFICIENT_CASH_MESSAGE)
+                abort(400, message=INSUFFICIENT_FUNDS_MESSAGE)
             transaction.average_cost_before = (
                 decimal.Decimal("0")
                 if state["quantity"] == 0
