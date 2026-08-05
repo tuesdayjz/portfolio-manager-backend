@@ -175,6 +175,48 @@ class AssetHistoryImportTest(unittest.TestCase):
         self.assertEqual(results[0].upserted_rows, 1)
         self.assertEqual(results[0].added_rows, 1)
 
+    def test_import_writes_only_available_rows_for_recently_listed_asset(self):
+        asset = self._asset("IPO")
+        available_dates = [
+            datetime.date(2026, 7, 31),
+            datetime.date(2026, 8, 3),
+        ]
+
+        def fake_fetch(asset, *, start_date, end_date):
+            self.assertEqual(start_date, datetime.date(2023, 8, 4))
+            self.assertEqual(end_date, datetime.date(2026, 8, 4))
+            return [
+                {
+                    "id": uuid.uuid4(),
+                    "asset_id": asset.id,
+                    "price_date": price_date,
+                    "close_price": decimal.Decimal("25"),
+                }
+                for price_date in available_dates
+            ]
+
+        from unittest.mock import patch
+
+        with patch(
+            "app.services.asset_history.fetch_daily_close_rows",
+            side_effect=fake_fetch,
+        ):
+            results = import_recent_asset_history(
+                start_date=datetime.date(2023, 8, 4),
+                end_date=datetime.date(2026, 8, 4),
+            )
+
+        rows = (
+            db.session.query(AssetDataHistory)
+            .filter_by(asset_id=asset.id)
+            .order_by(AssetDataHistory.price_date)
+            .all()
+        )
+
+        self.assertEqual(results[0].fetched_rows, 2)
+        self.assertEqual(results[0].upserted_rows, 2)
+        self.assertEqual([row.price_date for row in rows], available_dates)
+
     def test_import_prints_no_write_when_history_is_current(self):
         asset = self._asset("NVDA")
         price_date = datetime.date(2026, 8, 3)
