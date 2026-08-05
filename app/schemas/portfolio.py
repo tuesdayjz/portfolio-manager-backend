@@ -82,7 +82,7 @@ class PortfolioSummarySchema(Schema):
     total_return_percent = fields.Float(
         required=True,
         metadata={
-            "description": "Performance の total_return.percent と同じ総リターン率（％）。",
+            "description": "現金込み資産を deposit/withdrawal で調整した総リターン率（％）。",
             "example": 8.17,
         },
     )

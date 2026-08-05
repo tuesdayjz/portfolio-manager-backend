@@ -470,11 +470,12 @@ components:
           example: $
           type: string
         total_market_value:
+          description: Performance と同じ評価額。現金を含む portfolio value。
           example: 4220000
           minimum: 0.0
           type: number
         total_return_percent:
-          description: 取得原価に対する損益率（％）。ヘッダーの Total Return。
+          description: 現金込み資産を deposit/withdrawal で調整した総リターン率（％）。
           example: 8.17
           type: number
       required:

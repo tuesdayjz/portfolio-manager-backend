@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from werkzeug.exceptions import HTTPException
 
-from app.enums import AllocationGroupBy
+from app.enums import AllocationGroupBy, TransactionType
 from app.extensions import db
 from app.models import (
     AssetDataHistory,
@@ -24,6 +24,7 @@ from app.models import (
     Currency,
     Holdings,
     Portfolio,
+    Transactions,
     Users,
 )
 from app.services.common import (
@@ -38,8 +39,10 @@ from app.services.common import (
 from app.services.market_data import YahooFinanceMarketData
 from app.services.performance import (
     ALL_ASSET_TYPES,
+    _investment_flows,
+    _performance_change,
     _performance_positions,
-    _performance_returns,
+    _short_liability_value,
     _short_liability_value,
     _value_series,
 )
@@ -135,15 +138,24 @@ def get_portfolio_summary(market_data=None):
         if fx_rate is not None:
             cash_balance += quantity * average_cost * fx_rate
 
-    # 推移グラフと違い summary の評価額は現金を含むので、系列に残高を足す。
-    # `_value_series_statement` は quantity > 0 の位置しか合計しないため、
-    # ショートは自動的に除外される（負債は別枠の total_short_liability）。
+    # 投資資産の系列は performance と共有し、summary の総額には現金を加える。
+    # 基準日の現金は後段で売買・入出金を差し戻して復元する。
     positions, _cash_value, first_trade_date = _performance_positions(
         portfolio.id, market_data, ALL_ASSET_TYPES
     )
-    dates, values = _value_series(positions, cash_balance, first_trade_date, today)
-    total_market_value = values[-1]
-    total_return = _performance_returns(dates, values, today)["return_total"]
+    dates, investment_values = _value_series(
+        positions, decimal.Decimal("0"), first_trade_date, today
+    )
+    total_market_value = investment_values[-1] + cash_balance
+    total_return = _summary_total_return(
+        portfolio.id,
+        positions,
+        dates[0],
+        investment_values[0],
+        cash_balance,
+        total_market_value,
+        today,
+    )
     total_short_liability = _short_liability_value(portfolio.id, market_data, today)
 
     return {
@@ -154,6 +166,80 @@ def get_portfolio_summary(market_data=None):
         "total_short_liability": float(total_short_liability),
         "total_return_percent": total_return["percent"],
     }
+
+
+def _summary_total_return(
+    portfolio_id,
+    positions,
+    baseline_date,
+    baseline_investment_value,
+    current_cash_balance,
+    total_market_value,
+    as_of,
+):
+    """Return inception performance adjusted only for external capital flows.
+
+    buy/sell は投資資産と現金の間の移動なので、外部フローには数えない。ただし
+    現在の cash balance から基準日の残高を復元するためには売買金額も差し戻す。
+    deposit/withdrawal だけを入出金としてリターン計算の分母・分子に反映する。
+    """
+
+    trade_flows = _investment_flows(positions, as_of)
+    capital_flows = _capital_flows(portfolio_id, as_of)
+    baseline_cash_balance = current_cash_balance
+
+    for trade_date, transaction_type, amount in trade_flows:
+        if not baseline_date < trade_date <= as_of:
+            continue
+        if transaction_type == TransactionType.BUY.value:
+            baseline_cash_balance += amount
+        elif transaction_type == TransactionType.SELL.value:
+            baseline_cash_balance -= amount
+
+    deposits = decimal.Decimal("0")
+    withdrawals = decimal.Decimal("0")
+    for trade_date, transaction_type, amount in capital_flows:
+        if not baseline_date < trade_date <= as_of:
+            continue
+        if transaction_type == TransactionType.DEPOSIT.value:
+            baseline_cash_balance -= amount
+            deposits += amount
+        elif transaction_type == TransactionType.WITHDRAWAL.value:
+            baseline_cash_balance += amount
+            withdrawals += amount
+
+    baseline_value = baseline_investment_value + baseline_cash_balance
+    return _performance_change(
+        total_market_value, baseline_value, deposits, withdrawals
+    )
+
+
+def _capital_flows(portfolio_id, as_of):
+    """Return USD deposit/withdrawal amounts through ``as_of``."""
+
+    rows = db.session.execute(
+        select(
+            Transactions.trade_date,
+            Transactions.transaction_type,
+            (Transactions.quantity * Transactions.price).label("amount"),
+        )
+        .join(Holdings, Holdings.id == Transactions.holding_id)
+        .where(Holdings.portfolio_id == portfolio_id)
+        .where(Transactions.trade_date <= as_of)
+        .where(
+            Transactions.transaction_type.in_(
+                (
+                    TransactionType.DEPOSIT.value,
+                    TransactionType.WITHDRAWAL.value,
+                )
+            )
+        )
+        .order_by(Transactions.trade_date)
+    ).all()
+    return [
+        (trade_date, transaction_type, decimal_or_zero(amount))
+        for trade_date, transaction_type, amount in rows
+    ]
 
 
 def get_portfolio_holdings(args, market_data=None):
