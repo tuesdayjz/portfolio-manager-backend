@@ -37,6 +37,9 @@ QUOTE_TYPE_TO_ASSET_TYPE = {
     "MUTUALFUND": "fund",
     "CRYPTOCURRENCY": "crypto",
     "BOND": "bond",
+    # Covers index and commodity futures alike (e.g. ES=F, GC=F, CL=F) - Yahoo
+    # doesn't distinguish commodities from other futures via quoteType.
+    "FUTURE": "future",
 }
 
 # Treasury yields/futures from https://finance.yahoo.com/markets/bonds/ - Yahoo's
