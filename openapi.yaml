@@ -615,6 +615,10 @@ components:
           description: Yahoo Finance symbol
           example: 7203.T
           type: string
+        transaction_id:
+          description: 取引 id
+          example: b93f26c4-66b3-4069-a93a-1f94f1828921
+          type: string
         transaction_type:
           enum:
           - buy
@@ -631,6 +635,7 @@ components:
       - realized_pl
       - realized_pl_percent
       - symbol
+      - transaction_id
       - transaction_type
       type: object
     TransactionItem:
@@ -970,7 +975,9 @@ paths:
 
         との差分で計算する。`asset_type` を指定すると、その資産クラスの
 
-        holding だけを集計した推移を返す（`cash` 以外では現金を含めない）。'
+        holding だけを集計した推移を返す。現金は評価額に含めず、
+
+        `asset_type=cash` を指定したときだけ残高を系列として返す。'
       parameters:
       - in: query
         name: start_date
@@ -1012,7 +1019,7 @@ paths:
           - 1wk
           - 1mo
           example: 1d
-      - description: 資産クラスで絞り込む。省略時は全資産（UI の `All`）。`cash` 以外を指定した場合は現金を含めない。
+      - description: 資産クラスで絞り込む。省略時は全資産（UI の `All`）。現金は `cash` を指定したときだけ集計に含まれる。
         in: query
         name: asset_type
         required: false

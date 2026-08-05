@@ -327,7 +327,7 @@ class PerformanceQuerySchema(DateRangeQueryMixin, Schema):
         validate=validate.Length(max=20),
         metadata={
             "description": "資産クラスで絞り込む。省略時は全資産（UI の `All`）。"
-            "`cash` 以外を指定した場合は現金を含めない。",
+            "現金は `cash` を指定したときだけ集計に含まれる。",
             "example": "all",
         },
     )

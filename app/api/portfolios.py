@@ -135,7 +135,8 @@ class PortfolioPerformance(MethodView):
         前日の close price の差分で計算する。各期間の return は、今日の
         close price と対象期間の起点 close price（例: `1w` なら 1 週間前）
         との差分で計算する。`asset_type` を指定すると、その資産クラスの
-        holding だけを集計した推移を返す（`cash` 以外では現金を含めない）。
+        holding だけを集計した推移を返す。現金は評価額に含めず、
+        `asset_type=cash` を指定したときだけ残高を系列として返す。
         """
         require_auth()
         return get_portfolio_performance(args)
