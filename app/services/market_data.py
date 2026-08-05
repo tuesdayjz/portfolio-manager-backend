@@ -23,6 +23,21 @@ class YahooFinanceMarketData:
             self._prices[ticker] = self._fetch_latest_price(ticker)
         return self._prices[ticker]
 
+    def latest_prices(self, tickers):
+        """Fetch uncached ticker prices in one Yahoo Finance request."""
+
+        normalized = list(
+            dict.fromkeys(
+                ticker.strip()
+                for ticker in tickers
+                if isinstance(ticker, str) and ticker.strip()
+            )
+        )
+        missing = [ticker for ticker in normalized if ticker not in self._prices]
+        if missing:
+            self._prices.update(self._fetch_latest_prices(missing))
+        return {ticker: self._prices.get(ticker) for ticker in normalized}
+
     def today_order_price(self, ticker):
         """Return live price when available, otherwise the latest available close."""
 
@@ -123,6 +138,43 @@ class YahooFinanceMarketData:
         if closes.empty:
             return None
         return _decimal_or_none(closes.iloc[-1])
+
+    def _fetch_latest_prices(self, tickers):
+        prices = {ticker: None for ticker in tickers}
+        try:
+            import yfinance as yf
+
+            history = yf.download(
+                tickers=tickers,
+                period="5d",
+                group_by="column",
+                auto_adjust=True,
+                progress=False,
+                threads=True,
+                multi_level_index=True,
+            )
+            closes = history["Close"]
+        except Exception:
+            return prices
+
+        # With multi_level_index=True, multiple symbols produce a DataFrame.
+        # Keep support for a Series as well in case Yahoo/yfinance collapses a
+        # single-symbol response.
+        if hasattr(closes, "columns"):
+            columns = {str(column).upper(): column for column in closes.columns}
+            for ticker in tickers:
+                column = columns.get(ticker.upper())
+                if column is None:
+                    continue
+                values = closes[column].dropna()
+                if not values.empty:
+                    prices[ticker] = _decimal_or_none(values.iloc[-1])
+        elif len(tickers) == 1:
+            values = closes.dropna()
+            if not values.empty:
+                prices[tickers[0]] = _decimal_or_none(values.iloc[-1])
+
+        return prices
 
     def _fetch_latest_close(self, ticker):
         try:

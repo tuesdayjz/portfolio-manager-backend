@@ -255,19 +255,37 @@ def get_portfolio_holdings(args, market_data=None):
     total_market_value = decimal.Decimal("0")
     total_unrealized_pl = decimal.Decimal("0")
     total_previous_value = decimal.Decimal("0")
+    today = datetime.date.today()
 
-    holdings = db.session.execute(
-        select(Holdings)
-        .join(Holdings.asset)
+    previous_close = (
+        select(AssetDataHistory.close_price)
+        .where(AssetDataHistory.asset_id == Holdings.asset_id)
+        .where(AssetDataHistory.price_date < today)
+        .order_by(AssetDataHistory.price_date.desc())
+        .limit(1)
+        .correlate(Holdings)
+        .scalar_subquery()
+    )
+
+    holding_rows = db.session.execute(
+        select(
+            Holdings,
+            AssetMaster,
+            AssetType.asset_type,
+            Currency.currency,
+            previous_close.label("previous_close"),
+        )
+        .join(AssetMaster, AssetMaster.id == Holdings.asset_id)
+        .outerjoin(AssetType, AssetType.id == AssetMaster.asset_type_id)
+        .outerjoin(Currency, Currency.id == AssetMaster.currency_id)
         .where(Holdings.portfolio_id == portfolio.id)
         .order_by(AssetMaster.ticker)
-    ).scalars()
-   
-    for holding in holdings:
+    ).all()
+
+    priced_holdings = []
+    for holding, asset, asset_type, currency, previous_close_value in holding_rows:
         quantity = decimal_or_zero(holding.quantity)
         average_cost = decimal_or_zero(holding.average_cost)
-        asset = holding.asset
-        asset_type = getattr(getattr(asset, "asset_type", None), "asset_type", None)
         asset_type_value = (asset_type or "").lower()
         if asset_type_value == "cash":
             continue
@@ -275,18 +293,58 @@ def get_portfolio_holdings(args, market_data=None):
             continue
         if asset_type_filter != "all" and asset_type_value != asset_type_filter:
             continue
-        currency = asset_currency(asset)
+        currency = (currency or SUMMARY_CURRENCY).upper()
+        previous_close_value = decimal_or_none(previous_close_value)
+        if previous_close_value is None:
+            continue
+        priced_holdings.append(
+            (
+                asset,
+                asset_type,
+                quantity,
+                average_cost,
+                currency,
+                previous_close_value,
+            )
+        )
+
+    # 銘柄価格と非 USD 通貨の FX を Yahoo Finance のバッチAPIでまとめて取得する。
+    # injected market data implementations that only expose latest_price remain
+    # supported for callers outside the production endpoint.
+    if hasattr(market_data, "latest_prices"):
+        tickers = [asset.ticker for asset, *_rest in priced_holdings]
+        fx_tickers = [
+            f"{currency}USD=X"
+            for (
+                _asset,
+                _asset_type,
+                _quantity,
+                _average_cost,
+                currency,
+                _close,
+            ) in priced_holdings
+            if currency != SUMMARY_CURRENCY
+        ]
+        market_data.latest_prices([*tickers, *fx_tickers])
+
+    for (
+        asset,
+        asset_type,
+        quantity,
+        average_cost,
+        currency,
+        previous_close_value,
+    ) in priced_holdings:
         fx_rate = decimal_or_none(market_data.fx_to_usd(currency))
         if fx_rate is None:
             continue
         current_price = decimal_or_none(
             market_data.latest_price(getattr(asset, "ticker", None))
         )
-        previous_close = _previous_close_price(holding.asset_id)
-        if current_price is None or previous_close is None:
+        if current_price is None:
             continue
         current_price_usd = current_price * fx_rate
-        previous_close_usd = previous_close * fx_rate
+        previous_close_usd = previous_close_value * fx_rate
         average_purchase_price = average_cost * fx_rate
         total_purchase_price = average_purchase_price * quantity
         holding_market_value = current_price_usd * quantity
@@ -497,18 +555,6 @@ def _summary_currency_symbol():
         select(Currency).where(Currency.currency == SUMMARY_CURRENCY)
     ).scalar_one_or_none()
     return getattr(currency, "symbol", None) or DEFAULT_USD_SYMBOL
-
-
-def _previous_close_price(asset_id):
-    today = datetime.date.today()
-    row = db.session.execute(
-        select(AssetDataHistory)
-        .where(AssetDataHistory.asset_id == asset_id)
-        .where(AssetDataHistory.price_date < today)
-        .order_by(AssetDataHistory.price_date.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    return decimal_or_none(getattr(row, "close_price", None))
 
 
 def _return_percent(total_market_value, total_cost_basis):
