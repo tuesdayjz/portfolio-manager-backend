@@ -143,7 +143,8 @@ class CurrencyRateHistory(db.Model):
     """通貨ごとの USD 建て日次終値レート。
 
     `close_price` は 1 通貨単位あたりの USD 額（Yahoo Finance の `<CUR>USD=X`
-    と同じ向き）。USD 自身は常に 1 なので保存しなくてよい。
+    と同じ向き）。USD 自身も他通貨と同じ日付で 1 の row を持つので、参照側は
+    通貨を分岐せずにこのテーブルを join できる。
     """
 
     __tablename__ = "currency_rate_history"

@@ -387,8 +387,9 @@ ownership は `transactions -> holdings -> portfolio -> users` で解決する�
 | `close_price` | numeric | 1 通貨単位あたりの USD 建て終値 |
 
 `close_price` の向きは Yahoo Finance の `<CUR>USD=X` と同じ（例: `JPYUSD=X`）。
-USD 自身のレートは常に 1 なので row を持たない。`(currency_id, rate_date)` が
-unique。
+USD には対応する Yahoo ticker が無いが、他通貨と同じ日付で `close_price = 1` の
+row を持たせてある。参照側が USD だけ分岐せずに join できるようにするためで、
+この row は取り込み時に自動で同期される。`(currency_id, rate_date)` が unique。
 
 ## Supabase Client / Config
 

@@ -3,11 +3,15 @@
 `currency` の各通貨について Yahoo Finance の `<CUR>USD=X` 日次終値を取得し、
 `currency_rate_history` に upsert する。構成は `asset_history` と対になっていて、
 日付レンジの解釈やバッチ処理はそちらの helper をそのまま使う。
+
+USD だけは取得元が無いので、取り込みの最後に他通貨と同じ日付へレート 1 を
+書き込む（`sync_base_currency_rows`）。
 """
 
 from __future__ import annotations
 
 import datetime
+import decimal
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -22,8 +26,11 @@ from app.services.asset_history import chunks, date_from_index
 from app.services.common import decimal_or_none
 
 DEFAULT_RANGE = "2y"
-#: 基準通貨。自分自身に対するレートは常に 1 なので row を作らない。
+#: 基準通貨。Yahoo Finance に `USDUSD=X` は無いので取得対象からは外す。
 BASE_CURRENCY = "USD"
+#: 基準通貨の自分自身に対するレート。join 側で USD を特別扱いせずに済むよう、
+#: 他通貨と同じ日付で row を持たせる（`sync_base_currency_rows`）。
+BASE_CURRENCY_RATE = decimal.Decimal("1")
 
 
 @dataclass(frozen=True)
@@ -59,8 +66,9 @@ def import_recent_currency_rates(
         raise ValueError("batch_size must be greater than 0")
 
     results: list[CurrencyRateImportResult] = []
+    fetched_currencies = _currency_query(currencies)
 
-    for currency in _currency_query(currencies):
+    for currency in fetched_currencies:
         existing_rows_before = count_currency_rate_rows(
             currency.id,
             start_date=start_date,
@@ -123,7 +131,109 @@ def import_recent_currency_rates(
                 )
             )
 
+    base_result = sync_base_currency_rows(
+        start_date=start_date,
+        end_date=end_date,
+        batch_size=batch_size,
+        dry_run=dry_run,
+    )
+    if base_result is not None:
+        results.append(base_result)
+
     return results
+
+
+def sync_base_currency_rows(
+    *,
+    start_date: datetime.date,
+    end_date: datetime.date,
+    batch_size: int = 500,
+    dry_run: bool = False,
+) -> CurrencyRateImportResult | None:
+    """Give the base currency a rate of 1 on every date other currencies have.
+
+    Yahoo は `USDUSD=X` を持たないので、USD だけは取得ではなく他通貨の
+    `rate_date` に合わせて 1 を埋める。これで参照側が USD を分岐せずに
+    `currency_rate_history` を join できる。`currency` に USD 行が無い場合や
+    他通貨の row がまだ無い場合は None を返す。
+    """
+
+    base_currency = db.session.execute(
+        select(Currency).where(func.upper(Currency.currency) == BASE_CURRENCY)
+    ).scalars().first()
+    if base_currency is None:
+        return None
+
+    existing_rows_before = count_currency_rate_rows(
+        base_currency.id,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    rate_dates = _rate_dates_of_other_currencies(
+        base_currency.id,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    if not rate_dates:
+        return None
+
+    rows = [
+        {
+            "id": uuid.uuid4(),
+            "currency_id": base_currency.id,
+            "rate_date": rate_date,
+            "close_price": BASE_CURRENCY_RATE,
+        }
+        for rate_date in rate_dates
+    ]
+
+    try:
+        rows_to_write = find_currency_rate_rows_to_write(rows)
+        if not rows_to_write:
+            print(f"{base_currency.currency}: no write needed")
+            upserted_rows = 0
+        elif dry_run:
+            print(
+                f"{base_currency.currency}: dry-run, {len(rows_to_write)} rows need writing"
+            )
+            upserted_rows = 0
+        else:
+            print(
+                f"{base_currency.currency}: write started, {len(rows_to_write)} rows to write"
+            )
+            upserted_rows = upsert_currency_rate_rows(rows_to_write, batch_size)
+            db.session.commit()
+            print(
+                f"{base_currency.currency}: write finished, {upserted_rows} rows written"
+            )
+        existing_rows_after = (
+            existing_rows_before
+            if dry_run
+            else count_currency_rate_rows(
+                base_currency.id,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        )
+        return CurrencyRateImportResult(
+            currency=base_currency.currency,
+            currency_id=base_currency.id,
+            existing_rows_before=existing_rows_before,
+            existing_rows_after=existing_rows_after,
+            fetched_rows=len(rows),
+            upserted_rows=upserted_rows,
+        )
+    except Exception as error:
+        db.session.rollback()
+        return CurrencyRateImportResult(
+            currency=base_currency.currency,
+            currency_id=base_currency.id,
+            existing_rows_before=existing_rows_before,
+            existing_rows_after=existing_rows_before,
+            fetched_rows=0,
+            upserted_rows=0,
+            error=str(error),
+        )
 
 
 def rate_ticker(currency_code: str) -> str:
@@ -283,7 +393,28 @@ def requested_currencies_not_matched(
     return sorted(requested - matched)
 
 
+def _rate_dates_of_other_currencies(
+    base_currency_id: uuid.UUID,
+    *,
+    start_date: datetime.date,
+    end_date: datetime.date,
+) -> list[datetime.date]:
+    """Return the dates non-base currencies already have rows for."""
+
+    statement = (
+        select(CurrencyRateHistory.rate_date)
+        .distinct()
+        .where(CurrencyRateHistory.currency_id != base_currency_id)
+        .where(CurrencyRateHistory.rate_date >= start_date)
+        .where(CurrencyRateHistory.rate_date < end_date)
+        .order_by(CurrencyRateHistory.rate_date)
+    )
+    return list(db.session.execute(statement).scalars())
+
+
 def _currency_query(currencies: Iterable[str] | None = None) -> list[Currency]:
+    """Return the currencies to fetch from Yahoo, always excluding the base one."""
+
     statement = (
         select(Currency)
         .where(func.upper(Currency.currency) != BASE_CURRENCY)

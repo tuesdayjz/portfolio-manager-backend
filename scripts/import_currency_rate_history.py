@@ -63,8 +63,10 @@ def parse_args() -> argparse.Namespace:
         action="append",
         default=[],
         help=(
-            "Currency code to import, such as JPY. Repeat for multiple codes. "
-            f"Defaults to every currency row except {BASE_CURRENCY}."
+            "Currency code to fetch, such as JPY. Repeat for multiple codes. "
+            f"Defaults to every currency row. {BASE_CURRENCY} is never fetched; "
+            "its rate-1 rows are synced from the other currencies' dates on "
+            "every run."
         ),
     )
     parser.add_argument(

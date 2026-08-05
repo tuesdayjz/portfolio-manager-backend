@@ -19,6 +19,7 @@ from app.services.currency_rate_history import (
     import_recent_currency_rates,
     rate_ticker,
     requested_currencies_not_matched,
+    sync_base_currency_rows,
     upsert_currency_rate_rows,
 )
 
@@ -171,7 +172,113 @@ class CurrencyRateImportTest(unittest.TestCase):
         self.assertEqual(results[0].upserted_rows, 1)
         self.assertEqual(results[0].added_rows, 1)
 
-    def test_base_currency_is_skipped(self):
+    def test_base_currency_is_never_fetched_from_yahoo(self):
+        self._currency("USD", "$")
+        self._currency("JPY", "¥")
+
+        with patch(
+            "app.services.currency_rate_history.fetch_daily_rate_rows",
+            side_effect=self._fake_fetch(
+                datetime.date(2026, 8, 3), decimal.Decimal("0.0068")
+            ),
+        ) as fetcher:
+            import_recent_currency_rates(
+                start_date=datetime.date(2024, 8, 4),
+                end_date=datetime.date(2026, 8, 4),
+                dry_run=True,
+            )
+
+        fetched = [call.args[0].currency for call in fetcher.call_args_list]
+        self.assertEqual(fetched, ["JPY"])
+
+    def test_base_currency_gets_rate_one_on_other_currency_dates(self):
+        usd = self._currency("USD", "$")
+        jpy = self._currency("JPY", "¥")
+        rate_dates = [datetime.date(2026, 8, 3), datetime.date(2026, 8, 4)]
+        upsert_currency_rate_rows(
+            [
+                {
+                    "id": uuid.uuid4(),
+                    "currency_id": jpy.id,
+                    "rate_date": rate_date,
+                    "close_price": decimal.Decimal("0.0068"),
+                }
+                for rate_date in rate_dates
+            ]
+        )
+        db.session.commit()
+
+        result = sync_base_currency_rows(
+            start_date=datetime.date(2024, 8, 4),
+            end_date=datetime.date(2026, 8, 5),
+        )
+
+        rows = (
+            db.session.query(CurrencyRateHistory)
+            .filter_by(currency_id=usd.id)
+            .order_by(CurrencyRateHistory.rate_date)
+            .all()
+        )
+
+        self.assertEqual(result.currency, "USD")
+        self.assertEqual(result.added_rows, 2)
+        self.assertEqual([row.rate_date for row in rows], rate_dates)
+        self.assertEqual(
+            [row.close_price for row in rows],
+            [decimal.Decimal("1"), decimal.Decimal("1")],
+        )
+
+    def test_base_currency_sync_is_idempotent(self):
+        self._currency("USD", "$")
+        jpy = self._currency("JPY", "¥")
+        upsert_currency_rate_rows(
+            [
+                {
+                    "id": uuid.uuid4(),
+                    "currency_id": jpy.id,
+                    "rate_date": datetime.date(2026, 8, 3),
+                    "close_price": decimal.Decimal("0.0068"),
+                }
+            ]
+        )
+        db.session.commit()
+
+        kwargs = {
+            "start_date": datetime.date(2024, 8, 4),
+            "end_date": datetime.date(2026, 8, 4),
+        }
+        sync_base_currency_rows(**kwargs)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            second = sync_base_currency_rows(**kwargs)
+
+        self.assertIn("USD: no write needed", output.getvalue())
+        self.assertEqual(second.upserted_rows, 0)
+        self.assertEqual(second.added_rows, 0)
+        self.assertEqual(second.existing_rows_after, 1)
+
+    def test_base_currency_sync_skipped_without_usd_row(self):
+        jpy = self._currency("JPY", "¥")
+        upsert_currency_rate_rows(
+            [
+                {
+                    "id": uuid.uuid4(),
+                    "currency_id": jpy.id,
+                    "rate_date": datetime.date(2026, 8, 3),
+                    "close_price": decimal.Decimal("0.0068"),
+                }
+            ]
+        )
+        db.session.commit()
+
+        self.assertIsNone(
+            sync_base_currency_rows(
+                start_date=datetime.date(2024, 8, 4),
+                end_date=datetime.date(2026, 8, 4),
+            )
+        )
+
+    def test_import_reports_base_currency_alongside_fetched_ones(self):
         self._currency("USD", "$")
         self._currency("JPY", "¥")
 
@@ -184,10 +291,13 @@ class CurrencyRateImportTest(unittest.TestCase):
             results = import_recent_currency_rates(
                 start_date=datetime.date(2024, 8, 4),
                 end_date=datetime.date(2026, 8, 4),
-                dry_run=True,
             )
 
-        self.assertEqual([result.currency for result in results], ["JPY"])
+        by_currency = {result.currency: result for result in results}
+
+        self.assertEqual(sorted(by_currency), ["JPY", "USD"])
+        self.assertEqual(by_currency["USD"].added_rows, 1)
+        self.assertEqual(by_currency["USD"].existing_rows_after, 1)
 
     def test_currency_matching_is_case_insensitive(self):
         self._currency("JPY")

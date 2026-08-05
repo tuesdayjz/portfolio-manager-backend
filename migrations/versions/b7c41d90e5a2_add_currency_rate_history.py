@@ -2,7 +2,7 @@
 
 `currency` の全通貨について、USD 建て日次終値レートを保存するテーブルを追加する。
 `close_price` は 1 通貨単位あたりの USD 額で、Yahoo Finance の `<CUR>USD=X` と
-同じ向き。USD 自身は常に 1 なので行を持たなくてよい。
+同じ向き。USD 自身も他通貨と同じ日付で 1 の行を持たせる（取り込み側で同期する）。
 
 Revision ID: b7c41d90e5a2
 Revises: 9c7d5e2a1b4f
