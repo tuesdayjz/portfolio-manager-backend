@@ -808,6 +808,52 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         self.assertEqual(float(self._holding_for_ticker("AAPL").quantity), 5.0)
         self.assertEqual(self._cash_balance(), 9250.0)
 
+    def test_create_transaction_backdated_buy_conflicts_with_future_buy(self):
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        first_buy = self._buy_payload("AAPL", "Apple Inc.", 100)
+        first_buy["price"] = 60
+        first_buy["trade_date"] = (today - datetime.timedelta(days=20)).isoformat()
+        self.assertEqual(self._post_transaction(first_buy).status_code, 201)
+
+        future_buy = self._buy_payload("MSFT", "Microsoft Corp.", 1)
+        future_buy["price"] = 3990
+        self.assertEqual(self._post_transaction(future_buy).status_code, 201)
+
+        backdated_buy = self._buy_payload("MSFT", "Microsoft Corp.", 1)
+        backdated_buy["price"] = 100
+        backdated_buy["trade_date"] = (today - datetime.timedelta(days=10)).isoformat()
+        response = self._post_transaction(backdated_buy)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.get_json()["message"], "Conflict with future transaction"
+        )
+        self.assertEqual(Transactions.query.count(), 2)
+        self.assertEqual(self._cash_balance(), 10.0)
+
+    def test_create_transaction_backdated_sell_conflicts_with_future_sell(self):
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        first_buy = self._buy_payload("AAPL", "Apple Inc.", 10)
+        first_buy["price"] = 100
+        first_buy["trade_date"] = (today - datetime.timedelta(days=20)).isoformat()
+        self.assertEqual(self._post_transaction(first_buy).status_code, 201)
+
+        future_sell = self._sell_payload("AAPL", "Apple Inc.", 8)
+        future_sell["price"] = 100
+        self.assertEqual(self._post_transaction(future_sell).status_code, 201)
+
+        backdated_sell = self._sell_payload("AAPL", "Apple Inc.", 3)
+        backdated_sell["price"] = 120
+        backdated_sell["trade_date"] = (today - datetime.timedelta(days=10)).isoformat()
+        response = self._post_transaction(backdated_sell)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.get_json()["message"], "Conflict with future transaction"
+        )
+        self.assertEqual(Transactions.query.count(), 2)
+        self.assertEqual(float(self._holding_for_ticker("AAPL").quantity), 2.0)
+
     def test_create_transaction_backdated_buy_without_cash_rolls_back(self):
         today = datetime.datetime.now(datetime.timezone.utc).date()
         payload = self._buy_payload("AAPL", "Apple Inc.", 1)

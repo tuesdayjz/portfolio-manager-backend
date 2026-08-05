@@ -21,6 +21,7 @@ PORTFOLIO_NOT_FOUND_MESSAGE = "The specified portfolio does not exist"
 OVERSELL_MESSAGE = "Cannot sell more than current holding"
 INSUFFICIENT_FUNDS_MESSAGE = "Cannot buy more than available cash balance"
 INSUFFICIENT_CASH_FOR_WITHDRAWAL_MESSAGE = "Cannot withdraw more than current cash balance"
+FUTURE_TRANSACTION_CONFLICT_MESSAGE = "Conflict with future transaction"
 PRICE_UNAVAILABLE_MESSAGE = "Unable to fetch a live price for this ticker."
 FX_UNAVAILABLE_MESSAGE = "Unable to fetch an FX rate for this ticker currency."
 UNSUPPORTED_ASSET_MESSAGE = "Unable to register this ticker."
@@ -101,6 +102,7 @@ def create_transaction(payload, market_data=None):
     portfolio = _portfolio_for_current_user()
     market_data = market_data or YahooFinanceMarketData()
     touched_asset_ids = set()
+    new_transaction_ids = set()
     today = _utc_today()
     historical = _requires_historical_replay([payload], today)
 
@@ -116,11 +118,15 @@ def create_transaction(payload, market_data=None):
             market_data,
             {},
             touched_asset_ids,
+            new_transaction_ids,
             today=today,
             apply_incremental=not historical,
         )
         if historical:
             db.session.flush()
+            _validate_historical_future_margins(
+                portfolio.id, market_data, today, starting_cash, new_transaction_ids
+            )
             _replay_portfolio_transactions(
                 portfolio.id, market_data, today, starting_cash
             )
@@ -143,6 +149,7 @@ def create_transactions_batch(payload, market_data=None):
     market_data = market_data or YahooFinanceMarketData()
     holdings_cache = {}
     touched_asset_ids = set()
+    new_transaction_ids = set()
     today = _utc_today()
     items = payload["transactions"]
     historical = _requires_historical_replay(items, today)
@@ -160,6 +167,7 @@ def create_transactions_batch(payload, market_data=None):
                 market_data,
                 holdings_cache,
                 touched_asset_ids,
+                new_transaction_ids,
                 today=today,
                 apply_incremental=not historical,
             )
@@ -167,6 +175,9 @@ def create_transactions_batch(payload, market_data=None):
         ]
         if historical:
             db.session.flush()
+            _validate_historical_future_margins(
+                portfolio.id, market_data, today, starting_cash, new_transaction_ids
+            )
             _replay_portfolio_transactions(
                 portfolio.id, market_data, today, starting_cash
             )
@@ -344,6 +355,7 @@ def _create_transaction_line(
     market_data,
     holdings_cache,
     touched_asset_ids,
+    new_transaction_ids,
     *,
     today,
     apply_incremental,
@@ -398,9 +410,10 @@ def _create_transaction_line(
         holding.updated_at = now
         cash_holding.updated_at = now
 
+    transaction_id = uuid.uuid4()
     db.session.add(
         Transactions(
-            id=uuid.uuid4(),
+            id=transaction_id,
             holding_id=holding.id,
             trade_date=trade_date,
             quantity=quantity,
@@ -414,6 +427,7 @@ def _create_transaction_line(
             transaction_type=transaction_type.value,
         )
     )
+    new_transaction_ids.add(transaction_id)
 
     asset_type = getattr(getattr(asset, "asset_type", None), "asset_type", None)
 
@@ -455,6 +469,74 @@ def _requires_historical_replay(items, today):
         if trade_date < today:
             return True
     return False
+
+
+def _validate_historical_future_margins(
+    portfolio_id, market_data, today, starting_cash, new_transaction_ids
+):
+    rows = _portfolio_transaction_timeline(portfolio_id)
+    cash_balance = decimal.Decimal(str(starting_cash))
+    asset_quantities = {}
+    new_cash_outflow = decimal.Decimal("0")
+    new_asset_reductions = {}
+
+    for transaction, holding, asset in rows:
+        if _is_cash_timeline_transaction(transaction, asset):
+            continue
+
+        asset_id = holding.asset_id
+        quantity = _decimal_or_zero(transaction.quantity)
+        price = _decimal_or_zero(transaction.price)
+        fx_rate = _fx_to_usd_for_trade(
+            market_data, _asset_currency(asset), transaction.trade_date, today
+        )
+        trade_amount_usd = quantity * price * fx_rate
+        is_new_transaction = transaction.id in new_transaction_ids
+        asset_quantity = asset_quantities.setdefault(asset_id, decimal.Decimal("0"))
+
+        if is_new_transaction:
+            available_cash = cash_balance - new_cash_outflow
+            available_asset_quantity = asset_quantity - new_asset_reductions.get(
+                asset_id, decimal.Decimal("0")
+            )
+            if transaction.transaction_type == TransactionType.SELL.value:
+                if quantity > available_asset_quantity:
+                    abort(400, message=OVERSELL_MESSAGE)
+                new_asset_reductions[asset_id] = (
+                    new_asset_reductions.get(asset_id, decimal.Decimal("0")) + quantity
+                )
+                new_cash_outflow -= trade_amount_usd
+            else:
+                if trade_amount_usd > available_cash:
+                    abort(400, message=INSUFFICIENT_FUNDS_MESSAGE)
+                new_asset_reductions[asset_id] = (
+                    new_asset_reductions.get(asset_id, decimal.Decimal("0")) - quantity
+                )
+                new_cash_outflow += trade_amount_usd
+            continue
+
+        if new_cash_outflow > 0:
+            cash_margin = cash_balance
+            if transaction.transaction_type == TransactionType.BUY.value:
+                cash_margin -= trade_amount_usd
+            if cash_margin < new_cash_outflow:
+                abort(400, message=FUTURE_TRANSACTION_CONFLICT_MESSAGE)
+
+        asset_reduction = new_asset_reductions.get(asset_id, decimal.Decimal("0"))
+        if asset_reduction > 0 and asset_quantity < asset_reduction:
+            abort(400, message=FUTURE_TRANSACTION_CONFLICT_MESSAGE)
+
+        if transaction.transaction_type == TransactionType.SELL.value:
+            asset_quantity -= quantity
+            cash_balance += trade_amount_usd
+        else:
+            asset_quantity += quantity
+            cash_balance -= trade_amount_usd
+        asset_quantities[asset_id] = asset_quantity
+
+        asset_reduction = new_asset_reductions.get(asset_id, decimal.Decimal("0"))
+        if asset_reduction > 0 and asset_quantity < asset_reduction:
+            abort(400, message=FUTURE_TRANSACTION_CONFLICT_MESSAGE)
 
 
 def _replay_portfolio_transactions(portfolio_id, market_data, today, starting_cash):
