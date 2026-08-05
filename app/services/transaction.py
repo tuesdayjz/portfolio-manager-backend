@@ -19,6 +19,15 @@ from app.services.market_data import YahooFinanceMarketData
 
 PORTFOLIO_NOT_FOUND_MESSAGE = "The specified portfolio does not exist"
 OVERSELL_MESSAGE = "Cannot sell more than current holding"
+OVERCOVER_MESSAGE = "Cannot cover more than current short position"
+SHORT_POSITION_OPEN_MESSAGE = (
+    "Cannot trade long while an open short position exists for this asset; "
+    "buy to cover it first."
+)
+LONG_POSITION_OPEN_MESSAGE = (
+    "Cannot trade short while an open long position exists for this asset; "
+    "sell to close it first."
+)
 INSUFFICIENT_FUNDS_MESSAGE = "Cannot buy more than available cash balance"
 INSUFFICIENT_CASH_FOR_WITHDRAWAL_MESSAGE = "Cannot withdraw more than current cash balance"
 PRICE_UNAVAILABLE_MESSAGE = "Unable to fetch a live price for this ticker."
@@ -233,6 +242,7 @@ def _create_cash_transaction_line(portfolio, transaction_type, amount):
             average_cost_before=None,
             cash_balance_before=cash_balance,
             transaction_type=transaction_type.value,
+            position="long",
         )
     )
 
@@ -289,6 +299,7 @@ def _transaction_history_item(transaction, holding, asset, asset_type):
         "symbol": asset.ticker,
         "name": asset.name,
         "asset_type": getattr(asset_type, "asset_type", None),
+        "position": getattr(transaction, "position", None) or "long",
         "quantity": float(quantity),
         "transaction_type": transaction.transaction_type,
         "executed_price": float(unit_price * quantity),
@@ -315,13 +326,25 @@ def _transaction_history_totals(rows):
 
 
 def _realized_pl(transaction, holding):
-    # buy は売却時まで損益が確定しないため null にする。
-    if transaction.transaction_type != TransactionType.SELL.value:
+    # ロングの開始(buy)・ショートの開始(sell)では損益が確定しないため null にする。
+    # 損益が確定するのは、ロングを閉じる sell とショートを閉じる(covering) buy だけ。
+    position = getattr(transaction, "position", None) or "long"
+    closes_long = (
+        transaction.transaction_type == TransactionType.SELL.value
+        and position == "long"
+    )
+    closes_short = (
+        transaction.transaction_type == TransactionType.BUY.value
+        and position == "short"
+    )
+    if not closes_long and not closes_short:
         return None
 
     quantity = _decimal_or_zero(transaction.quantity)
     unit_price = _decimal_or_zero(transaction.price)
     average_cost = _transaction_average_cost_before(transaction, holding)
+    if closes_short:
+        return (average_cost - unit_price) * quantity
     return (unit_price - average_cost) * quantity
 
 
@@ -366,6 +389,7 @@ def _create_transaction_line(
     existing_average_cost = _decimal_or_zero(average_cost_before)
     quantity = decimal.Decimal(str(item["quantity"]))
     transaction_type = item["transaction_type"]
+    position = item["position"]
     cash_holding = _get_or_create_usd_cash_holding(portfolio.id, holdings_cache)
     cash_balance = _decimal_or_zero(cash_holding.average_cost)
 
@@ -379,20 +403,42 @@ def _create_transaction_line(
         trade_amount_usd = quantity * price * fx_rate
 
         if transaction_type is TransactionType.SELL:
-            if quantity > existing_quantity:
-                abort(400, message=OVERSELL_MESSAGE)
+            if position == "short":
+                if existing_quantity > 0:
+                    abort(400, message=LONG_POSITION_OPEN_MESSAGE)
+                short_quantity_before = -existing_quantity
+                if short_quantity_before == 0:
+                    transaction_average_cost_before = decimal.Decimal("0")
+                new_short_quantity = short_quantity_before + quantity
+                holding.average_cost = (
+                    short_quantity_before * existing_average_cost
+                    + quantity * price
+                ) / new_short_quantity
+            else:
+                if existing_quantity < 0:
+                    abort(400, message=SHORT_POSITION_OPEN_MESSAGE)
+                if quantity > existing_quantity:
+                    abort(400, message=OVERSELL_MESSAGE)
             holding.quantity = existing_quantity - quantity
             cash_holding.average_cost = cash_balance + trade_amount_usd
         else:
+            if position == "short":
+                if existing_quantity > 0:
+                    abort(400, message=LONG_POSITION_OPEN_MESSAGE)
+                if quantity > -existing_quantity:
+                    abort(400, message=OVERCOVER_MESSAGE)
+            elif existing_quantity < 0:
+                abort(400, message=SHORT_POSITION_OPEN_MESSAGE)
             if trade_amount_usd > cash_balance:
                 abort(400, message=INSUFFICIENT_FUNDS_MESSAGE)
-            if existing_quantity == 0:
-                transaction_average_cost_before = decimal.Decimal("0")
-            new_quantity = existing_quantity + quantity
-            holding.average_cost = (
-                existing_quantity * existing_average_cost + quantity * price
-            ) / new_quantity
-            holding.quantity = new_quantity
+            if position == "long":
+                if existing_quantity == 0:
+                    transaction_average_cost_before = decimal.Decimal("0")
+                new_quantity = existing_quantity + quantity
+                holding.average_cost = (
+                    existing_quantity * existing_average_cost + quantity * price
+                ) / new_quantity
+            holding.quantity = existing_quantity + quantity
             cash_holding.average_cost = cash_balance - trade_amount_usd
 
         holding.updated_at = now
@@ -412,6 +458,7 @@ def _create_transaction_line(
                 transaction_cash_balance_before if apply_incremental else None
             ),
             transaction_type=transaction_type.value,
+            position=position,
         )
     )
 
@@ -481,6 +528,7 @@ def _replay_portfolio_transactions(portfolio_id, market_data, today, starting_ca
         quantity = _decimal_or_zero(transaction.quantity)
         price = _decimal_or_zero(transaction.price)
         average_cost_before = state["average_cost"]
+        position = getattr(transaction, "position", None) or "long"
 
         fx_rate = _fx_to_usd_for_trade(
             market_data, _asset_currency(asset), transaction.trade_date, today
@@ -490,24 +538,49 @@ def _replay_portfolio_transactions(portfolio_id, market_data, today, starting_ca
 
         if transaction.transaction_type == TransactionType.SELL.value:
             transaction.average_cost_before = average_cost_before
-            if quantity > state["quantity"]:
-                abort(400, message=OVERSELL_MESSAGE)
+            if position == "short":
+                if state["quantity"] > 0:
+                    abort(400, message=LONG_POSITION_OPEN_MESSAGE)
+                short_quantity_before = -state["quantity"]
+                if short_quantity_before == 0:
+                    transaction.average_cost_before = decimal.Decimal("0")
+                new_short_quantity = short_quantity_before + quantity
+                previous_average_cost = _decimal_or_zero(average_cost_before)
+                state["average_cost"] = (
+                    short_quantity_before * previous_average_cost
+                    + quantity * price
+                ) / new_short_quantity
+            else:
+                if state["quantity"] < 0:
+                    abort(400, message=SHORT_POSITION_OPEN_MESSAGE)
+                if quantity > state["quantity"]:
+                    abort(400, message=OVERSELL_MESSAGE)
             state["quantity"] -= quantity
             cash_balance += trade_amount_usd
         else:
+            if position == "short":
+                if state["quantity"] > 0:
+                    abort(400, message=LONG_POSITION_OPEN_MESSAGE)
+                if quantity > -state["quantity"]:
+                    abort(400, message=OVERCOVER_MESSAGE)
+                transaction.average_cost_before = average_cost_before
+            else:
+                if state["quantity"] < 0:
+                    abort(400, message=SHORT_POSITION_OPEN_MESSAGE)
             if trade_amount_usd > cash_balance:
                 abort(400, message=INSUFFICIENT_FUNDS_MESSAGE)
-            transaction.average_cost_before = (
-                decimal.Decimal("0")
-                if state["quantity"] == 0
-                else average_cost_before
-            )
-            new_quantity = state["quantity"] + quantity
-            previous_average_cost = _decimal_or_zero(average_cost_before)
-            state["average_cost"] = (
-                state["quantity"] * previous_average_cost + quantity * price
-            ) / new_quantity
-            state["quantity"] = new_quantity
+            if position == "long":
+                transaction.average_cost_before = (
+                    decimal.Decimal("0")
+                    if state["quantity"] == 0
+                    else average_cost_before
+                )
+                new_quantity = state["quantity"] + quantity
+                previous_average_cost = _decimal_or_zero(average_cost_before)
+                state["average_cost"] = (
+                    state["quantity"] * previous_average_cost + quantity * price
+                ) / new_quantity
+            state["quantity"] += quantity
             cash_balance -= trade_amount_usd
 
     for state in states.values():

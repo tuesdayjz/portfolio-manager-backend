@@ -250,6 +250,24 @@ class PortfolioAllocationEndpointTest(unittest.TestCase):
         self.assertEqual(data["items"][1]["holdings_count"], 1)
         self.assertIn("as_of", data)
 
+    def test_allocation_excludes_short_positions(self):
+        portfolio = self._seed_mixed_portfolio()
+        tsla = self._asset("TSLA", "Tesla Inc.", self.stock_type, self.usd)
+        self._holding(portfolio, tsla, quantity=-10, average_cost=200)
+        FakeMarketData.prices["TSLA"] = 250
+
+        response = self._get_allocation("?group_by=asset_type")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        # A short is a liability, not an asset, so it must not appear in the
+        # allocation graph at all - same total as without the short holding.
+        self.assertEqual(data["total_value"], 2350)
+        self.assertEqual(
+            [(item["category"], item["value"]) for item in data["items"]],
+            [("stock", 1030), ("cash", 1000), ("etf", 320)],
+        )
+
     def test_allocation_groups_by_currency(self):
         self._seed_mixed_portfolio()
 

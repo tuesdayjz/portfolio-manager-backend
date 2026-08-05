@@ -42,7 +42,7 @@ class TransactionItemSchema(Schema):
     )
     position = fields.Str(
         required=True,
-        validate=validate.OneOf(["long"]),
+        validate=validate.OneOf(["long", "short"]),
         metadata={"description": "Position direction", "example": "long"},
     )
     order_type = fields.Str(
@@ -142,6 +142,11 @@ class TransactionHistoryItemSchema(Schema):
     asset_type = fields.Str(
         required=True, validate=validate.Length(max=20),
         metadata={"description": "資産クラス", "example": "stock"},
+    )
+    position = fields.Str(
+        required=True,
+        validate=validate.OneOf(["long", "short"]),
+        metadata={"description": "Position direction", "example": "long"},
     )
     quantity = fields.Float(
         required=True,

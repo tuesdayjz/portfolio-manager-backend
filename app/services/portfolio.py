@@ -42,6 +42,8 @@ from app.services.performance import (
     _investment_flows,
     _performance_change,
     _performance_positions,
+    _short_liability_value,
+    _short_liability_value,
     _value_series,
 )
 
@@ -154,12 +156,14 @@ def get_portfolio_summary(market_data=None):
         total_market_value,
         today,
     )
+    total_short_liability = _short_liability_value(portfolio.id, market_data, today)
 
     return {
         "currency": SUMMARY_CURRENCY,
         "currency_symbol": _summary_currency_symbol(),
         "cash_balance": float(cash_balance),
         "total_market_value": float(total_market_value),
+        "total_short_liability": float(total_short_liability),
         "total_return_percent": total_return["percent"],
     }
 
@@ -267,7 +271,7 @@ def get_portfolio_holdings(args, market_data=None):
         asset_type_value = (asset_type or "").lower()
         if asset_type_value == "cash":
             continue
-        if quantity <= 0:
+        if quantity == 0:
             continue
         if asset_type_filter != "all" and asset_type_value != asset_type_filter:
             continue
@@ -288,9 +292,19 @@ def get_portfolio_holdings(args, market_data=None):
         holding_market_value = current_price_usd * quantity
         unrealized_pl = (current_price_usd - average_purchase_price) * quantity
 
-        total_market_value += holding_market_value
-        total_unrealized_pl += unrealized_pl
-        total_previous_value += average_purchase_price * quantity
+        # Shorts are a liability, not an asset: they're listed individually
+        # below but excluded from the aggregate totals.
+        if quantity > 0:
+            total_market_value += holding_market_value
+            total_unrealized_pl += unrealized_pl
+            total_previous_value += average_purchase_price * quantity
+
+        # A short position gains value when the price falls, so its return
+        # is the inverse of the raw price change used for a long position.
+        return_sign = -1 if quantity < 0 else 1
+        return_percent = return_sign * _return_percent(
+            current_price_usd, average_purchase_price
+        )
 
         items.append(
             {
@@ -302,12 +316,8 @@ def get_portfolio_holdings(args, market_data=None):
                 "total_purchase_price": float(total_purchase_price),
                 "current_price": float(current_price_usd),
                 "total_market_value": float(holding_market_value),
-                "today_return_percent": float(
-                    _return_percent(current_price_usd, average_purchase_price)
-                ),
-                "total_return_percent": float(
-                    _return_percent(current_price_usd, average_purchase_price)
-                ),
+                "today_return_percent": float(return_percent),
+                "total_return_percent": float(return_percent),
                 "currency": SUMMARY_CURRENCY,
             }
         )
@@ -370,6 +380,10 @@ def get_portfolio_allocation(args, market_data=None):
             # cash holding は quantity=1、average_cost に残高が入っている。
             value = quantity * decimal_or_zero(holding.average_cost) * fx_rate
         else:
+            # ショート（負の quantity）は負債であり資産ではないので、
+            # 配分グラフからは除く。
+            if quantity <= 0:
+                continue
             current_price = decimal_or_none(
                 market_data.latest_price(getattr(asset, "ticker", None))
             )
