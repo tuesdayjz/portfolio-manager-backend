@@ -39,6 +39,18 @@ QUOTE_TYPE_TO_ASSET_TYPE = {
     "BOND": "bond",
 }
 
+# Treasury yields/futures from https://finance.yahoo.com/markets/bonds/ - Yahoo's
+# `quoteType` for these is INDEX / FUTURE, indistinguishable from any other index
+# or futures contract, so they're mapped to "bond" by ticker instead of quote_type.
+MANUAL_BOND_TICKERS = {
+    "^IRX",  # 13 Week Treasury Bill
+    "^FVX",  # Treasury Yield 5 Years
+    "^TNX",  # Treasury Yield 10 Years
+    "^TYX",  # Treasury Yield 30 Years
+    "ZT=F",  # 2-Year T-Note Futures
+    "ZN=F",  # 10-Year T-Note Futures
+}
+
 
 def get_portfolio_transactions(args):
     """ログイン user の portfolio に紐づく取引履歴を返す。"""
@@ -626,7 +638,10 @@ def _get_or_create_asset(ticker, name, market_data):
     if not meta:
         abort(400, message=UNSUPPORTED_ASSET_MESSAGE)
 
-    asset_type_value = QUOTE_TYPE_TO_ASSET_TYPE.get(meta["quote_type"])
+    if ticker.upper() in MANUAL_BOND_TICKERS:
+        asset_type_value = "bond"
+    else:
+        asset_type_value = QUOTE_TYPE_TO_ASSET_TYPE.get(meta["quote_type"])
     if not asset_type_value:
         abort(400, message=UNSUPPORTED_ASSET_MESSAGE)
 
