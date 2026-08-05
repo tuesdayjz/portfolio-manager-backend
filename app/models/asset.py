@@ -1,4 +1,7 @@
-"""資産マスタ関連のモデル（asset_type / currency / asset_master / asset_data_history）。"""
+"""資産マスタ関連のモデル。
+
+asset_type / currency / asset_master / asset_data_history / currency_rate_history。
+"""
 
 import datetime
 import decimal
@@ -54,6 +57,9 @@ class Currency(db.Model):
 
     asset_master: Mapped[list["AssetMaster"]] = relationship(
         "AssetMaster", back_populates="currency"
+    )
+    rate_history: Mapped[list["CurrencyRateHistory"]] = relationship(
+        "CurrencyRateHistory", back_populates="currency"
     )
 
 
@@ -130,4 +136,46 @@ class AssetDataHistory(db.Model):
 
     asset: Mapped["AssetMaster"] = relationship(
         "AssetMaster", back_populates="asset_data_history"
+    )
+
+
+class CurrencyRateHistory(db.Model):
+    """通貨ごとの USD 建て日次終値レート。
+
+    `close_price` は 1 通貨単位あたりの USD 額（Yahoo Finance の `<CUR>USD=X`
+    と同じ向き）。USD 自身も他通貨と同じ日付で 1 の row を持つので、参照側は
+    通貨を分岐せずにこのテーブルを join できる。
+    """
+
+    __tablename__ = "currency_rate_history"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["currency_id"],
+            ["currency.id"],
+            ondelete="CASCADE",
+            name="currency_rate_history_currency_id_fkey",
+        ),
+        PrimaryKeyConstraint("id", name="currency_rate_history_pkey"),
+        UniqueConstraint(
+            "currency_id",
+            "rate_date",
+            name="currency_rate_history_currency_id_rate_date_key",
+        ),
+        # asset_data_history と同じく、直近レートの参照が主用途なので降順で張る。
+        Index(
+            "currency_rate_history_currency_id_rate_date_idx",
+            "currency_id",
+            text("rate_date DESC"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    currency_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    rate_date: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    close_price: Mapped[decimal.Decimal] = mapped_column(Numeric, nullable=False)
+
+    currency: Mapped["Currency"] = relationship(
+        "Currency", back_populates="rate_history"
     )

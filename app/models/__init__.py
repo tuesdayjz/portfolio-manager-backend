@@ -16,7 +16,13 @@
 `'...'::text` を含む。これらは Postgres 専用で、SQLite に `create_all()` は通らない。
 """
 
-from app.models.asset import AssetDataHistory, AssetMaster, AssetType, Currency
+from app.models.asset import (
+    AssetDataHistory,
+    AssetMaster,
+    AssetType,
+    Currency,
+    CurrencyRateHistory,
+)
 from app.models.holding import Holdings
 from app.models.portfolio import Portfolio
 from app.models.transaction import Transactions
@@ -27,6 +33,7 @@ __all__ = [
     "AssetMaster",
     "AssetType",
     "Currency",
+    "CurrencyRateHistory",
     "Holdings",
     "Portfolio",
     "Transactions",

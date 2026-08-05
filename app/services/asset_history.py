@@ -206,7 +206,7 @@ def fetch_daily_close_rows(
         if price is None:
             continue
 
-        price_date = _date_from_index(index)
+        price_date = date_from_index(index)
         if price_date is None:
             continue
 
@@ -231,7 +231,7 @@ def upsert_asset_history_rows(rows: list[dict], batch_size: int = 500) -> int:
     table = AssetDataHistory.__table__
     dialect_name = db.engine.dialect.name
 
-    for batch in _chunks(rows, batch_size):
+    for batch in chunks(rows, batch_size):
         if dialect_name == "postgresql":
             statement = postgresql_insert(table).values(batch)
         elif dialect_name == "sqlite":
@@ -417,12 +417,16 @@ def _asset_query(
     return list(db.session.execute(statement).scalars())
 
 
-def _chunks(rows: list[dict], batch_size: int):
+def chunks(rows: list[dict], batch_size: int):
+    """Split rows into batches. Shared with `currency_rate_history`."""
+
     for index in range(0, len(rows), batch_size):
         yield rows[index : index + batch_size]
 
 
-def _date_from_index(value) -> datetime.date | None:
+def date_from_index(value) -> datetime.date | None:
+    """Convert a pandas index entry into a date. Shared with `currency_rate_history`."""
+
     if isinstance(value, datetime.datetime):
         return value.date()
     if isinstance(value, datetime.date):

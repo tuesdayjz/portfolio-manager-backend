@@ -133,6 +133,15 @@ class PortfolioSummaryEndpointTest(unittest.TestCase):
                 UNIQUE (asset_id, price_date)
             )
             """,
+            """
+            CREATE TABLE currency_rate_history (
+                id CHAR(32) PRIMARY KEY,
+                currency_id CHAR(32) NOT NULL,
+                rate_date DATE NOT NULL,
+                close_price NUMERIC NOT NULL,
+                UNIQUE (currency_id, rate_date)
+            )
+            """,
         ]
         for statement in statements:
             db.session.execute(text(statement))
@@ -143,6 +152,7 @@ class PortfolioSummaryEndpointTest(unittest.TestCase):
             "transactions",
             "holdings",
             "asset_data_history",
+            "currency_rate_history",
             "portfolio",
             "asset_master",
             "asset_type",

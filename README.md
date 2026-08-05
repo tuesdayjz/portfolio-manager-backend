@@ -152,6 +152,7 @@ currency
 asset_type
 asset_master
 asset_data_history
+currency_rate_history
 ```
 
 logged-in user は shared table を read できる。write 方針は SQLAlchemy branch
@@ -429,6 +430,7 @@ app/
 │   ├── portfolio.py   portfolio
 │   ├── holding.py     holdings
 │   ├── asset.py       currency / asset_type / asset_master / asset_data_history
+│   │                  / currency_rate_history
 │   └── transaction.py transactions
 ├── auth.py        Supabase access token を検証し g.current_user_id を設定する
 ├── enums.py       TransactionType / Interval

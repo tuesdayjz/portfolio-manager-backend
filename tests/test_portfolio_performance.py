@@ -15,6 +15,7 @@ from app.models import (
     AssetMaster,
     AssetType,
     Currency,
+    CurrencyRateHistory,
     Holdings,
     Portfolio,
     Transactions,
@@ -139,6 +140,15 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
                 UNIQUE (asset_id, price_date)
             )
             """,
+            """
+            CREATE TABLE currency_rate_history (
+                id CHAR(32) PRIMARY KEY,
+                currency_id CHAR(32) NOT NULL,
+                rate_date DATE NOT NULL,
+                close_price NUMERIC NOT NULL,
+                UNIQUE (currency_id, rate_date)
+            )
+            """,
         ]
         for statement in statements:
             db.session.execute(text(statement))
@@ -149,6 +159,7 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
             "transactions",
             "holdings",
             "asset_data_history",
+            "currency_rate_history",
             "portfolio",
             "asset_master",
             "asset_type",
@@ -246,6 +257,20 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
         )
         db.session.commit()
 
+    def _rates(self, currency, rates_by_date):
+        db.session.add_all(
+            [
+                CurrencyRateHistory(
+                    id=uuid.uuid4(),
+                    currency_id=currency.id,
+                    rate_date=rate_date,
+                    close_price=close_price,
+                )
+                for rate_date, close_price in rates_by_date.items()
+            ]
+        )
+        db.session.commit()
+
     def _trade(self, holding, *, trade_date, quantity, price, transaction_type):
         db.session.add(
             Transactions(
@@ -262,7 +287,7 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
         db.session.commit()
 
     def _seed_cash_and_stock(self):
-        """現金 1000 USD と AAPL 10 株。評価額は 1800 → 1900 → 1950 → 2000。"""
+        """現金 1000 USD と AAPL 10 株。現金を除く評価額は 800 → 900 → 950 → 1000。"""
 
         portfolio = self._create_portfolio()
         cash = self._asset("CASH-USD", "Cash USD", self.cash_type, self.usd)
@@ -296,10 +321,10 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
         self.assertEqual(
             [(point["date"], point["total_market_value"]) for point in data["points"]],
             [
-                (self._days_ago(10).isoformat(), 1800),
-                (self._days_ago(7).isoformat(), 1900),
-                (self._days_ago(1).isoformat(), 1950),
-                (self.today.isoformat(), 2000),
+                (self._days_ago(10).isoformat(), 800),
+                (self._days_ago(7).isoformat(), 900),
+                (self._days_ago(1).isoformat(), 950),
+                (self.today.isoformat(), 1000),
             ],
         )
 
@@ -311,21 +336,21 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
         metrics = data["metrics"]
-        self.assertEqual(metrics["portfolio_value"], 2000)
-        # 今日 2000 と前日 1950 の差分。
+        self.assertEqual(metrics["portfolio_value"], 1000)
+        # 今日 1000 と前日 950 の差分。
         self.assertEqual(metrics["today"]["amount"], 50)
-        self.assertAlmostEqual(metrics["today"]["percent"], 50 / 1950 * 100, places=6)
+        self.assertAlmostEqual(metrics["today"]["percent"], 50 / 950 * 100, places=6)
         self.assertEqual(data["return_1d"], metrics["today"])
-        # 1 週間前は 1900。
+        # 1 週間前は 900。
         self.assertEqual(data["return_1w"]["amount"], 100)
         self.assertAlmostEqual(
-            data["return_1w"]["percent"], 100 / 1900 * 100, places=6
+            data["return_1w"]["percent"], 100 / 900 * 100, places=6
         )
-        # 起点より前のデータが無い期間は、最も古い評価額 1800 を起点にする。
+        # 起点より前のデータが無い期間は、最も古い評価額 800 を起点にする。
         self.assertEqual(data["return_1m"]["amount"], 200)
         self.assertEqual(data["return_total"]["amount"], 200)
         self.assertAlmostEqual(
-            data["return_total"]["percent"], 200 / 1800 * 100, places=6
+            data["return_total"]["percent"], 200 / 800 * 100, places=6
         )
         self.assertEqual(metrics["total_return"], data["return_total"])
         # range=all の period return は総損益と一致する。
@@ -364,8 +389,8 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
         self.assertIsNone(data["range"])
         self.assertEqual(data["start_date"], self._days_ago(7).isoformat())
         self.assertEqual(data["end_date"], self._days_ago(1).isoformat())
-        # end_date 時点で評価するので、今日の 2000 は入らない。
-        self.assertEqual(data["metrics"]["portfolio_value"], 1950)
+        # end_date 時点で評価するので、今日の 1000 は入らない。
+        self.assertEqual(data["metrics"]["portfolio_value"], 950)
         self.assertEqual(
             [point["date"] for point in data["points"]],
             [self._days_ago(7).isoformat(), self._days_ago(1).isoformat()],
@@ -381,7 +406,7 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
         self.assertEqual(data["end_date"], self.today.isoformat())
-        self.assertEqual(data["metrics"]["portfolio_value"], 2000)
+        self.assertEqual(data["metrics"]["portfolio_value"], 1000)
 
     def test_performance_replays_transactions_for_past_quantities(self):
         portfolio = self._create_portfolio()
@@ -437,11 +462,11 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
         self.assertEqual(
             [point["total_market_value"] for point in data["points"]],
             [
-                # 買い増し前: AAPL 4 株 * 80 + MSFT 5 株 * 10 + 現金 1000
-                1370,
-                # 売買当日: AAPL 10 株 * 95 + MSFT 2 株 * 10 + 現金 1000
-                1970,
-                2020,
+                # 買い増し前: AAPL 4 株 * 80 + MSFT 5 株 * 10
+                370,
+                # 売買当日: AAPL 10 株 * 95 + MSFT 2 株 * 10
+                970,
+                1020,
             ],
         )
         # 運用開始日は最初の取引日。
@@ -504,6 +529,77 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
             [point["total_market_value"] for point in data["points"]], [20, 30]
         )
 
+    def test_performance_uses_stored_fx_history_when_available(self):
+        portfolio = self._create_portfolio()
+        toyota = self._asset("7203.T", "Toyota Motor Corp.", self.stock_type, self.jpy)
+        self._holding(portfolio, toyota, quantity=2, average_cost=1000)
+        self._prices(toyota, {self._days_ago(1): 1000, self.today: 1500})
+        # 保存済みレートが現在レートより優先される。
+        self._rates(self.jpy, {self._days_ago(1): "0.005"})
+        FakeMarketData.fx_rates = {"JPY": 0.01}
+
+        response = self._get_performance()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(
+            [point["total_market_value"] for point in data["points"]],
+            # 前日は 2 * 1000 * 0.005、今日はレートが無いので前日分を横引きする。
+            [10, 15],
+        )
+
+    def test_performance_uses_earliest_stored_fx_before_history_starts(self):
+        portfolio = self._create_portfolio()
+        toyota = self._asset("7203.T", "Toyota Motor Corp.", self.stock_type, self.jpy)
+        self._holding(portfolio, toyota, quantity=2, average_cost=1000)
+        self._prices(toyota, {self._days_ago(1): 1000, self.today: 1500})
+        # 今日のレートしか無い。前日は現在レートではなく最も古い保存済み
+        # レートまで遡って換算する。
+        self._rates(self.jpy, {self.today: "0.005"})
+        FakeMarketData.fx_rates = {"JPY": 0.01}
+
+        response = self._get_performance()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(
+            [point["total_market_value"] for point in data["points"]], [10, 15]
+        )
+
+    def test_performance_converts_cash_with_stored_fx(self):
+        portfolio = self._create_portfolio()
+        cash = self._asset("CASH-JPY", "Cash JPY", self.cash_type, self.jpy)
+        self._holding(portfolio, cash, quantity=1, average_cost=100000)
+        self._rates(self.jpy, {self._days_ago(3): "0.004", self._days_ago(1): "0.005"})
+        FakeMarketData.fx_rates = {"JPY": 0.01}
+
+        response = self._get_performance("?asset_type=cash")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        # 現在レートの 0.01 ではなく、直近の保存済みレート 0.005 で換算する。
+        self.assertEqual(
+            data["points"],
+            [{"date": self.today.isoformat(), "total_market_value": 500}],
+        )
+
+    def test_performance_values_currency_with_history_but_no_current_fx(self):
+        portfolio = self._create_portfolio()
+        toyota = self._asset("7203.T", "Toyota Motor Corp.", self.stock_type, self.jpy)
+        self._holding(portfolio, toyota, quantity=2, average_cost=1000)
+        self._prices(toyota, {self.today: 1500})
+        self._rates(self.jpy, {self.today: "0.005"})
+        # Yahoo が落ちていても、保存済みレートがあれば評価できる。
+        FakeMarketData.fx_rates = {}
+
+        response = self._get_performance()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(
+            [point["total_market_value"] for point in data["points"]], [15]
+        )
+
     def test_performance_skips_holdings_without_fx_or_prices(self):
         portfolio = self._create_portfolio()
         cash = self._asset("CASH-USD", "Cash USD", self.cash_type, self.usd)
@@ -513,7 +609,7 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
         self._holding(portfolio, toyota, quantity=2, average_cost=1000)
         self._holding(portfolio, unlisted, quantity=5, average_cost=10)
         self._prices(toyota, {self.today: 1500})
-        # Toyota は FX が無く、NEW は価格データが無いので現金だけが残る。
+        # Toyota は FX が無く、NEW は価格データが無い。現金も集計外なので 0。
         FakeMarketData.fx_rates = {}
 
         response = self._get_performance()
@@ -521,11 +617,27 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
         self.assertEqual(
-            [point["total_market_value"] for point in data["points"]], [1000]
+            [point["total_market_value"] for point in data["points"]], [0]
         )
-        self.assertEqual(data["metrics"]["portfolio_value"], 1000)
+        self.assertEqual(data["metrics"]["portfolio_value"], 0)
 
-    def test_performance_returns_flat_series_for_cash_only_portfolio(self):
+    def test_performance_returns_flat_series_for_cash_asset_type(self):
+        portfolio = self._create_portfolio()
+        cash = self._asset("CASH-USD", "Cash USD", self.cash_type, self.usd)
+        self._holding(portfolio, cash, quantity=1, average_cost=1000)
+
+        response = self._get_performance("?asset_type=cash")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["asset_type"], "cash")
+        self.assertEqual(
+            data["points"],
+            [{"date": self.today.isoformat(), "total_market_value": 1000}],
+        )
+        self.assertEqual(data["return_total"], {"amount": 0, "percent": 0})
+
+    def test_performance_excludes_cash_from_the_default_series(self):
         portfolio = self._create_portfolio()
         cash = self._asset("CASH-USD", "Cash USD", self.cash_type, self.usd)
         self._holding(portfolio, cash, quantity=1, average_cost=1000)
@@ -534,11 +646,61 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
+        self.assertEqual(data["asset_type"], "all")
+        # 現金しか持っていなくても、評価額には算入しない。
         self.assertEqual(
             data["points"],
-            [{"date": self.today.isoformat(), "total_market_value": 1000}],
+            [{"date": self.today.isoformat(), "total_market_value": 0}],
         )
-        self.assertEqual(data["return_total"], {"amount": 0, "percent": 0})
+
+    def test_performance_filters_series_by_asset_type(self):
+        portfolio = self._create_portfolio()
+        bond_type = AssetType(id=uuid.uuid4(), asset_type="bond")
+        db.session.add(bond_type)
+        db.session.commit()
+        cash = self._asset("CASH-USD", "Cash USD", self.cash_type, self.usd)
+        apple = self._asset("AAPL", "Apple Inc.", self.stock_type, self.usd)
+        bond = self._asset("US10Y", "US 10Y", bond_type, self.usd)
+        self._holding(portfolio, cash, quantity=1, average_cost=1000)
+        self._holding(portfolio, apple, quantity=10, average_cost=50)
+        self._holding(portfolio, bond, quantity=5, average_cost=100)
+        self._prices(apple, {self._days_ago(1): 90, self.today: 100})
+        self._prices(bond, {self._days_ago(1): 200, self.today: 300})
+
+        response = self._get_performance("?asset_type=bond")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["asset_type"], "bond")
+        # 債券 5 口だけ。株式と現金は集計しない。
+        self.assertEqual(
+            [point["total_market_value"] for point in data["points"]], [1000, 1500]
+        )
+        self.assertEqual(data["metrics"]["portfolio_value"], 1500)
+        self.assertEqual(data["return_total"]["amount"], 500)
+
+    def test_performance_returns_zeros_for_unknown_asset_type(self):
+        self._seed_cash_and_stock()
+
+        response = self._get_performance("?asset_type=crypto")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["asset_type"], "crypto")
+        self.assertEqual(
+            data["points"],
+            [{"date": self.today.isoformat(), "total_market_value": 0}],
+        )
+
+    def test_performance_asset_type_filter_is_case_insensitive(self):
+        self._seed_cash_and_stock()
+
+        response = self._get_performance("?asset_type=STOCK")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["asset_type"], "stock")
+        self.assertEqual(data["metrics"]["portfolio_value"], 1000)
 
     def test_performance_returns_zeros_for_empty_portfolio(self):
         self._create_portfolio()
