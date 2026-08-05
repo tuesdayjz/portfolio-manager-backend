@@ -126,10 +126,7 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
                 price NUMERIC NOT NULL,
                 fees NUMERIC NOT NULL DEFAULT 0,
                 average_cost_before NUMERIC,
-<<<<<<< HEAD
                 cash_balance_before NUMERIC,
-=======
->>>>>>> 07d0a13 (Build the performance series in SQL and filter it by asset type)
                 created_at DATETIME NOT NULL,
                 transaction_type TEXT NOT NULL DEFAULT ''
             )
