@@ -1,12 +1,8 @@
 ## Portfolio Manager (Tokyo Team)
 
-ポートフォリオ管理 API の backend リポジトリ。現時点では Flask +
-flask-smorest で OpenAPI / Swagger UI とリクエスト・レスポンススキーマを
-定義している。`POST /api/v1/portfolios/` は実装済みで、それ以外の
-portfolio / assets / transactions の業務処理はまだ未実装。
+Backend repository for the Portfolio Management API. Currently, OpenAPI / Swagger UI and request/response schemas are defined using Flask + flask-smorest. `POST /api/v1/portfolios/` is implemented, while business logic for other portfolio / assets / transactions operations is not yet implemented.
 
-Supabase 接続設定、Supabase client helper、database connection tests、
-RLS tests は実装済み。
+Supabase connection setup, Supabase client helpers, database connection tests, and RLS tests are implemented.
 
 ### User Story
 
@@ -17,7 +13,7 @@ RLS tests は実装済み。
 5. As an investor, I want to visualize my asset allocation so that I can better control and manage risk.
 6. As an investor, I want to monitor my investment performance over time so that I can track the growth of my portfolio.
 
-### セットアップ
+### Setup
 
 ```bash
 python3 -m venv .venv
@@ -28,14 +24,11 @@ export FLASK_APP=wsgi.py
 .venv/bin/flask run --port=5001
 ```
 
-> **ポートは 5001 を使う。** macOS の AirPlay レシーバーが `*:5000` を
-> 掴んでいるため、5000 番だと `localhost` が AirPlay 側に吸われて
-> `403 Forbidden`（`Server: AirTunes`）が返る。5001 が使えない場合は、
-> 開発中は `--port=5003` で起動してよい。
+> **Use port 5001.** Because macOS AirPlay Receiver occupies `*:5000`, using port 5000 causes requests to `localhost` to be intercepted by AirPlay, returning `403 Forbidden` (`Server: AirTunes`). If port 5001 is unavailable, launching with `--port=5003` during development is fine.
 
-### Supabase 設定
+### Supabase Configuration
 
-`.env` に Supabase の接続情報を設定する。
+Configure Supabase connection info in `.env`.
 
 ```env
 SUPABASE_URL=https://gvtxkyimbroikdfjsacb.supabase.co
@@ -46,16 +39,15 @@ DATABASE_URL=postgresql+psycopg://postgres.<project-ref>:<password>@aws-0-ap-nor
 TEST_DATABASE_URL=sqlite+pysqlite:///:memory:
 ```
 
-- `SUPABASE_ANON_KEY`: Supabase Dashboard の publishable / anon key。
-- `SUPABASE_SERVICE_ROLE_KEY`: Supabase Dashboard の secret / service role key。
-- `SUPABASE_SERVICE_ROLE_KEY` は接続確認・RLS 検証用の backend secret。frontend や Git には出さない。
-- `DEFAULT_BASE_CURRENCY`: portfolio 作成時の既定通貨。frontend / backend ともに `USD` を既定値にする。
-- `DATABASE_URL`: backend から Supabase PostgreSQL へ接続するための SQLAlchemy URI。
-- `TEST_DATABASE_URL`: unit test 用 DB URI。未設定時は in-memory SQLite を使う。
-- `.env` は `.gitignore` 対象なので、ローカル環境だけに置く。
+- `SUPABASE_ANON_KEY`: Publishable / anon key from Supabase Dashboard.
+- `SUPABASE_SERVICE_ROLE_KEY`: Secret / service role key from Supabase Dashboard.
+- `SUPABASE_SERVICE_ROLE_KEY` is a backend secret used for connection testing and RLS verification. Do not expose to frontend or Git.
+- `DEFAULT_BASE_CURRENCY`: Default currency when creating a portfolio. Both frontend and backend use `USD` as the default value.
+- `DATABASE_URL`: SQLAlchemy URI for connecting to Supabase PostgreSQL from the backend.
+- `TEST_DATABASE_URL`: DB URI for unit tests. Defaults to in-memory SQLite if unset.
+- `.env` is listed in `.gitignore`, so keep it in local environments only.
 
-Flask アプリ内では Supabase 設定を直接 `os.getenv` で読まず、`app.config`
-経由で client を作成する。
+Within the Flask app, do not read Supabase configuration directly via `os.getenv`; create clients via `app.config`.
 
 ```python
 from app.services.supabase import get_supabase_anon_client
@@ -63,26 +55,17 @@ from app.services.supabase import get_supabase_anon_client
 client = get_supabase_anon_client()
 ```
 
-`get_supabase_anon_client()` は `current_app.config["SUPABASE_URL"]` と
-`current_app.config["SUPABASE_ANON_KEY"]` を使い、Supabase Auth の token
-検証に使う。`get_supabase_service_client()` は接続確認・RLS 検証用 helper として
-残すが、portfolio / holdings / transactions の業務 CRUD の主線にはしない。
-`get_*_client()` は Flask app に cache される。テストなどで複数ユーザーの
-session を分けたい場合は `create_supabase_anon_client()` のような non-cached
-client creator を使う。
+`get_supabase_anon_client()` uses `current_app.config["SUPABASE_URL"]` and `current_app.config["SUPABASE_ANON_KEY"]` for validating Supabase Auth tokens. `get_supabase_service_client()` remains as a helper for connection tests and RLS verification, but is not used for primary business CRUD operations on portfolios / holdings / transactions. `get_*_client()` functions are cached on the Flask app. If you need to separate sessions across multiple users in tests, use a non-cached client creator such as `create_supabase_anon_client()`.
 
-### 認証方針
+### Authentication Policy
 
-- React は Supabase Auth を直接使って signup / login する。
-- React が private table を直接読む場合は Supabase access token と RLS で保護する。
-- React が Flask の private API を呼ぶ場合は
-  `Authorization: Bearer <access_token>` を header に付ける。
-- この branch は Flask 側で Auth context を作るところまでを担当する。
-- holdings / transactions などの業務 DB read/write と ownership check は、
-  後続の SQLAlchemy branch で `g.current_user_id` を使って実装する。
+- React handles signup / login directly using Supabase Auth.
+- When React reads private tables directly, access is protected by Supabase access tokens and RLS.
+- When React calls Flask private APIs, include `Authorization: Bearer <access_token>` in the request header.
+- This branch is responsible for creating the Auth context on the Flask side.
+- Business DB read/write operations and ownership checks for holdings / transactions will be implemented using `g.current_user_id` in subsequent SQLAlchemy branches.
 
-Flask 側では `app.auth.require_auth()` が Supabase access token を検証し、
-成功すると以下を request context に保存する。
+On the Flask side, `app.auth.require_auth()` validates the Supabase access token and, upon success, saves the following to the request context:
 
 ```python
 from flask import g
@@ -92,60 +75,46 @@ g.current_user_email
 g.current_access_token
 ```
 
-private API の実装では client から `user_id` を受け取らず、
-`g.current_user_id` を使って対象ユーザーを解決する。Swagger UI では右上の
-**Authorize** から Supabase access token を入力する。
+Private API implementations do not receive `user_id` from the client; instead, they resolve the target user using `g.current_user_id`. In Swagger UI, enter the Supabase access token via **Authorize** in the top right.
 
-Swagger UI で private API を手動テストする場合は、ローカルの `.env` と
-`tests/.env` に Supabase 設定と `SUPABASE_TEST_USER_EMAIL` /
-`SUPABASE_TEST_USER_PASSWORD` を置いたうえで、以下を使う。
+When manually testing private APIs in Swagger UI, set up Supabase configuration along with `SUPABASE_TEST_USER_EMAIL` / `SUPABASE_TEST_USER_PASSWORD` in your local `.env` and `tests/.env`, then run the following:
 
 ```bash
 .venv/bin/python scripts/create_test_user.py
 .venv/bin/python scripts/generate_token.py
 ```
 
-`scripts/create_test_user.py` は、`SUPABASE_TEST_USER_EMAIL` から
-`user001+20260802000000-abcdef@gmail.com` のような一意の email を生成して
-新しい test user を作る。固定 email を使いたい場合だけ `--email` を渡す。
-作成後に表示される `scripts/generate_token.py --email ...` の token 生成コマンドを
-実行し、出力を Swagger UI の **Authorize** に貼り付ける。HTTP header 形式で
-確認したい場合は `--header` を付ける。
+`scripts/create_test_user.py` generates a unique email from `SUPABASE_TEST_USER_EMAIL` (e.g. `user001+20260802000000-abcdef@gmail.com`) to create a new test user. Pass `--email` only if you want to use a fixed email address.
+After creation, run the displayed token generation command (`scripts/generate_token.py --email ...`) and paste the output into **Authorize** in Swagger UI. Add `--header` if you want to inspect HTTP header format output.
 
-### デバッグ時に token を省略する
+### Skipping Token During Debugging
 
-毎回 token を発行して Swagger UI に貼り直すのが面倒な場合は、ローカルの
-`.env` に以下を置くと `require_auth()` が token 検証を飛ばし、
-`DEBUG_USER_ID` を現在のユーザーとして扱う。
+If issuing a token and pasting it into Swagger UI each time is cumbersome, adding the following to your local `.env` causes `require_auth()` to skip token validation and treat `DEBUG_USER_ID` as the current user:
 
 ```bash
 AUTH_DISABLED=true
-DEBUG_USER_ID=<Supabase auth user の UUID>
-DEBUG_USER_EMAIL=<その user の email>
+DEBUG_USER_ID=<UUID of Supabase auth user>
+DEBUG_USER_EMAIL=<email of that user>
 ```
 
-`DEBUG_USER_ID` は `scripts/create_test_user.py` が作成時に表示する user id を使う。
-実在する user の id にしておかないと、その id で新しい `users` row が作られる点に注意。
+Use the user ID displayed when created by `scripts/create_test_user.py` as `DEBUG_USER_ID`. Note that if you do not use an existing user ID, a new `users` row will be created with that ID.
 
-有効にすると起動時に `AUTH_DISABLED=true: ...` の warning log が出る。
-`FLASK_ENV=production` では config 側で強制的に無効化されるため、
-env に残っていても本番では効かない。切り戻しは `AUTH_DISABLED=false` に戻すだけでよい。
+When enabled, a warning log `AUTH_DISABLED=true: ...` will be output upon startup. In `FLASK_ENV=production`, it is forcibly disabled by configuration, so even if it remains in `.env`, it will have no effect in production. To revert, simply set `AUTH_DISABLED=false`.
 
-> Review note: この branch では authentication だけを準備し、authorization
-> check と業務 DB write は SQLAlchemy branch との merge 後に実装する。
+> Review note: This branch only prepares authentication; authorization checks and business DB writes will be implemented after merging with the SQLAlchemy branch.
 
 ### Supabase RLS
 
-private table の read policy:
+Read policy for private tables:
 
 | Table | Read policy |
 | --- | --- |
-| `users` | `users.id = auth.uid()` の row だけ読める |
-| `portfolio` | `portfolio.user_id = auth.uid()` の row だけ読める |
-| `holdings` | `holdings -> portfolio.user_id = auth.uid()` の row だけ読める |
-| `transactions` | `transactions -> holdings -> portfolio.user_id = auth.uid()` の row だけ読める |
+| `users` | Only rows matching `users.id = auth.uid()` can be read |
+| `portfolio` | Only rows matching `portfolio.user_id = auth.uid()` can be read |
+| `holdings` | Only rows matching `holdings -> portfolio.user_id = auth.uid()` can be read |
+| `transactions` | Only rows matching `transactions -> holdings -> portfolio.user_id = auth.uid()` can be read |
 
-shared table:
+Shared tables:
 
 ```text
 currency
@@ -155,69 +124,64 @@ asset_data_history
 currency_rate_history
 ```
 
-logged-in user は shared table を read できる。write 方針は SQLAlchemy branch
-で backend DB 実装と合わせて整理する。
+Logged-in users can read shared tables. Write policies will be organized along with backend DB implementation in the SQLAlchemy branch.
 
-### テスト
+### Testing
 
-設定だけをテストする場合:
+To test configuration only:
 
 ```bash
 .venv/bin/python -m unittest tests.test_config
 ```
 
-Auth helper と設定をテストする場合:
+To test Auth helper and configuration:
 
 ```bash
 .venv/bin/python -m unittest tests.test_auth tests.test_config
 ```
 
-portfolio 作成 API をテストする場合:
+To test portfolio creation API:
 
 ```bash
 .venv/bin/python -m unittest tests.test_portfolio_create
 ```
 
-portfolio の read API をまとめてテストする場合:
+To batch test portfolio read APIs:
 
 ```bash
 .venv/bin/python -m unittest tests.test_portfolio_summary tests.test_portfolio_holdings \
     tests.test_portfolio_allocation tests.test_portfolio_performance
 ```
 
-Supabase への接続と、全テーブルへの read 権限を確認する場合:
+To verify Supabase connection and read permissions on all tables:
 
 ```bash
 .venv/bin/python -W ignore::DeprecationWarning -m unittest tests.database_connection.test_supabase_connection
 ```
 
-backend の SQLAlchemy engine が `DATABASE_URL` で PostgreSQL に接続できることを
-確認する場合:
+To verify that backend SQLAlchemy engine can connect to PostgreSQL using `DATABASE_URL`:
 
 ```bash
 .venv/bin/python -m unittest tests.database_connection.test_sqlalchemy_connection
 ```
 
-この接続テストは `.env` と `tests/.env` の Supabase keys を使う。
-GitHub に共有するテンプレートは `tests/.env.example` に置き、実際の
-テストユーザーとパスワードはローカルの `tests/.env` にだけ置く。
+This connection test uses Supabase keys from `.env` and `tests/.env`. The template shared on GitHub is located at `tests/.env.example`, while actual test user credentials should be placed only in local `tests/.env`.
 
-接続テストを有効にするには `tests/.env` で以下を設定する。
+To enable connection tests, set the following in `tests/.env`:
 
 ```text
 RUN_SUPABASE_CONNECTION_TESTS=true
 ```
 
-接続テストでは以下を確認する。
+Connection tests verify the following:
 
 ```text
-Connection Setup: configured URL/key で client を作成し、軽量 read で active 状態を確認する
-Basic Operations: reference table に対して select limit 1 を実行し、結果を受け取れることを確認する
-Exception & Teardown: 不正 key で例外が出ること、HTTP client resource を close できることを確認する
+Connection Setup: Create client with configured URL/key and verify active status via lightweight read
+Basic Operations: Execute select limit 1 on reference tables and verify results can be received
+Exception & Teardown: Verify exception is raised on invalid keys and HTTP client resources can be closed
 ```
 
-service role の core table read では以下のテーブルに対して
-`select("id").limit(1)` だけを実行する。データの作成・更新・削除は行わない。
+For service role core table read checks, only `select("id").limit(1)` is executed against the following tables. No data creation, modification, or deletion is performed.
 
 ```text
 users
@@ -230,34 +194,33 @@ holdings
 transactions
 ```
 
-すべてのテストを実行する場合:
+To run all tests:
 
 ```bash
 .venv/bin/python -W ignore::DeprecationWarning -m unittest discover -s tests
 ```
 
-Database connection / Supabase 関連のテストだけを実行する場合:
+To run only Database connection / Supabase-related tests:
 
 ```bash
 .venv/bin/python -W ignore::DeprecationWarning -m unittest discover -s tests/database_connection -t .
 ```
 
-Database connection / Supabase tests の内容:
+Database connection / Supabase test details:
 
-| Test file | 内容 |
+| Test file | Details |
 | --- | --- |
-| `test_supabase_connection.py` | Supabase config で client を作成し、basic read、invalid key exception、client close/release を確認する。 |
-| `test_supabase_user_rls.py` | `RUN_SUPABASE_REAL_USER=false` のとき mock users で private/shared RLS を確認し、`true` のとき real users の holdings isolation を確認する。 |
+| `test_supabase_connection.py` | Creates a client with Supabase config to verify basic read, invalid key exception, and client close/release. |
+| `test_supabase_user_rls.py` | Verifies private/shared RLS with mock users when `RUN_SUPABASE_REAL_USER=false`, and verifies holdings isolation for real users when `true`. |
 
-RLS テストは `RUN_SUPABASE_REAL_USER` で mock user / real user を切り替える。
+RLS tests toggle between mock user / real user via `RUN_SUPABASE_REAL_USER`:
 
 ```text
-RUN_SUPABASE_REAL_USER=false  # mock user で private/public RLS tests を実行
-RUN_SUPABASE_REAL_USER=true   # real user で RLS tests を実行
+RUN_SUPABASE_REAL_USER=false  # Run private/public RLS tests using mock user
+RUN_SUPABASE_REAL_USER=true   # Run RLS tests using real user
 ```
 
-Real-user RLS で 2 人のユーザーのデータ分離を確認する場合は、ローカルの
-`tests/.env` に以下を設定する。
+To verify data isolation between two users in Real-user RLS, configure the following in local `tests/.env`:
 
 ```text
 RUN_SUPABASE_REAL_USER=true
@@ -268,72 +231,59 @@ SUPABASE_SECOND_TEST_USER_EMAIL=
 SUPABASE_SECOND_TEST_USER_PASSWORD=
 ```
 
-`RUN_SUPABASE_REAL_USER_BOOTSTRAP_DATA=true` の場合、holding がないテストユーザーには
-一時 mock holding を作成し、テスト終了後に作成した holding / asset / portfolio を削除する。
+When `RUN_SUPABASE_REAL_USER_BOOTSTRAP_DATA=true`, temporary mock holdings are created for test users who do not have holdings, and the created holdings / assets / portfolios are deleted after testing finishes.
 
-### データベース (Supabase)
+### Database (Supabase)
 
-DB は Supabase の PostgreSQL に Flask-SQLAlchemy で接続する。接続情報は
-`.env` の `DATABASE_URL` だけで、Supabase Dashboard > Project Settings >
-Database の Connection string をそのまま使う（ドライバは psycopg v3、
-`sslmode=require` 必須）。書式は [`.env.example`](.env.example) を参照。
+The DB connects to Supabase PostgreSQL using Flask-SQLAlchemy. Connection information uses only `DATABASE_URL` in `.env`, taking the Connection string directly from Supabase Dashboard > Project Settings > Database (driver is psycopg v3, `sslmode=require` is required). Refer to [`.env.example`](.env.example) for format.
 
-スキーマ変更は Flask-Migrate (Alembic) で管理する:
+Schema changes are managed via Flask-Migrate (Alembic):
 
 ```bash
-.venv/bin/flask db migrate -m "add holdings table"   # マイグレーション生成
-.venv/bin/flask db upgrade                           # 適用
-.venv/bin/flask db downgrade                         # 巻き戻し
+.venv/bin/flask db migrate -m "add holdings table"   # Generate migration
+.venv/bin/flask db upgrade                           # Apply migration
+.venv/bin/flask db downgrade                         # Rollback migration
 ```
 
-モデルは `app/models/` に置き、**`app/models/__init__.py` で import する**。
-`flask db migrate` は `db.metadata` に登録されたモデルしか見ないため、
-import し忘れると差分が空のマイグレーションが生成される。
+Place models in `app/models/` and **import them in `app/models/__init__.py`**. `flask db migrate` only inspects models registered in `db.metadata`; forgetting to import them will generate empty migrations.
 
-### ドキュメント
+### Documentation
 
-| URL | 内容 |
+| URL | Content |
 | --- | --- |
 | http://localhost:5001/docs | Swagger UI |
 | http://localhost:5001/redoc | ReDoc |
-| http://localhost:5001/openapi.json | OpenAPI 3.0.3 仕様 |
+| http://localhost:5001/openapi.json | OpenAPI 3.0.3 Specification |
 
-リポジトリには生成済みの [`openapi.yaml`](openapi.yaml) をコミットしてある。
-スキーマを変更したら再生成すること。
+The generated [`openapi.yaml`](openapi.yaml) has been committed to the repository. Regenerate it whenever schemas are updated:
 
 ```bash
 .venv/bin/flask export-openapi                  # -> openapi.yaml
 .venv/bin/flask export-openapi -f json          # -> openapi.json
 ```
 
-**API 設計はスキーマが単一の情報源。** `app/schemas/` を直せば仕様書・
-バリデーション・Swagger UI がまとめて追従する。仕様書だけ手で書き換える運用はしない。
+**Schemas are the single source of truth for API design.** Updating `app/schemas/` will update specifications, validation, and Swagger UI altogether. Avoid manually editing specifications alone.
 
-未実装 endpoint でも**リクエストのバリデーションは動く**ので、Swagger UI の
-Try it out で入力仕様の検証はできる（未実装なら 501、通らなければ 422）。
+**Request validation functions** even for unimplemented endpoints, allowing verification of input specs in Swagger UI's Try it out (501 if unimplemented, 422 if validation fails).
 
-### エンドポイント
+### Endpoints
 
-すべて `/api/v1` 配下。設計の背景は [`API_DESIGN.md`](API_DESIGN.md) を参照。
+All under `/api/v1`. Refer to [`API_DESIGN.md`](API_DESIGN.md) for design background.
 
-| メソッド | パス | タグ | 説明 |
+| Method | Path | Tag | Description |
 | --- | --- | --- | --- |
-| POST | `/portfolios/` | portfolio | ポートフォリオ作成 |
-| GET | `/portfolios/summary` | portfolio | サマリー（取得価額・評価額・総資産・含み損益） |
-| GET | `/portfolios/holdings` | portfolio | 保有残高一覧 |
-| GET | `/portfolios/allocation` | portfolio | 資産配分（種別・通貨・銘柄別） |
-| GET | `/portfolios/performance` | portfolio | 推移グラフ |
-| GET | `/assets/{asset_id}/` | assets | 資産マスタ情報（deprecated） |
-| GET | `/assets/{asset_id}/price-history` | assets | 過去の市場価格（deprecated） |
-| GET | `/portfolios/transactions` | transactions | 取引履歴の検索 |
-| POST | `/transactions` | transactions | 取引の登録（単件） |
-| POST | `/transactions/batch` | transactions | 取引の一括登録 |
+| POST | `/portfolios/` | portfolio | Create portfolio |
+| GET | `/portfolios/summary` | portfolio | Summary (acquisition value, market value, total assets, unrealized P&L) |
+| GET | `/portfolios/holdings` | portfolio | Holdings list |
+| GET | `/portfolios/allocation` | portfolio | Asset allocation (by category, currency, ticker) |
+| GET | `/portfolios/performance` | portfolio | Performance history chart |
+| GET | `/assets/{asset_id}/` | assets | Asset master info (deprecated) |
+| GET | `/assets/{asset_id}/price-history` | assets | Historical market prices (deprecated) |
+| GET | `/portfolios/transactions` | transactions | Search transaction history |
+| POST | `/transactions` | transactions | Register transaction (single) |
+| POST | `/transactions/batch` | transactions | Register transactions (batch) |
 
-`POST /portfolios/` は任意の `currency`（フロントエンド既定値は `USD`）、
-任意の `cash_balance` を受け取り、成功時は `message` だけを返す。
-すでに portfolio があるユーザーの場合は `409 Conflict` を返す。
-`cash_balance` は portfolio 作成時に cash holding として登録し、quantity は
-`1` として扱う。portfolio に名前は持たせない。
+`POST /portfolios/` accepts any `currency` (frontend default is `USD`) and optional `cash_balance`, returning only `message` on success. Returns `409 Conflict` if the user already has a portfolio. `cash_balance` is registered as a cash holding upon portfolio creation, treated with a quantity of `1`. Portfolios do not have a name property.
 
 ```json
 {
@@ -342,105 +292,57 @@ Try it out で入力仕様の検証はできる（未実装なら 501、通ら�
 }
 ```
 
-`GET /portfolios/summary` はログイン user の portfolio から USD 建ての
-サマリーを返す。`cash_balance` は cash holding を USD に換算して集計し、
-`total_market_value` と `total_return_percent` は cash 以外の holding だけで
-計算する。市場価格と FX は Yahoo Finance から取得し、DB には保存しない。
+`GET /portfolios/summary` returns a USD-denominated summary from the logged-in user's portfolio. `cash_balance` converts cash holding into USD for aggregation, while `total_market_value` and `total_return_percent` are calculated using non-cash holdings only. Market prices and FX rates are fetched from Yahoo Finance and not stored in the DB.
 
-`GET /portfolios/holdings` は cash を除いた保有残高一覧を USD 建てで返す。
-`asset_type`（既定値 `all`）、`page`、`per_page` を受け取る。`asset_id` と
-`search` は受け取らず、検索はフロントエンド側で行う。`items` は現在価格・取得単価・
-評価額・当日騰落率・累計損益率を返す。現在価格と FX は Yahoo Finance から取得し、
-前日終値は `asset_data_history` の `price_date < today` の最新 `close_price` を使う。
-必要な market data が足りない holding は一覧と totals から除外する。`totals` は
-ページング後の `items` ではなく、条件に一致した全 holding で集計する。
+`GET /portfolios/holdings` returns a list of non-cash holdings denominated in USD. Accepts `asset_type` (default `all`), `page`, and `per_page`. Does not accept `asset_id` or `search`; search is performed on the frontend. `items` returns current price, acquisition price, market value, daily gain/loss rate, and cumulative return rate. Current price and FX rates are retrieved from Yahoo Finance, and previous close price uses the latest `close_price` from `asset_data_history` where `price_date < today`. Holdings lacking required market data are excluded from the list and totals. `totals` aggregates across all matching holdings rather than paginated `items`.
 
-`GET /portfolios/allocation` は必須の `group_by`（`asset_type` / `currency` /
-`asset` / `sector`）で集計した配分を USD 建てで返す。`items` は分類名を
-`category`、USD 評価額を `value`、0〜1 の構成比を `weight`、区分に含まれる
-holding 件数を `holdings_count` として `value` の降順で返す。cash holding も
-1 区分として含めるが、`group_by=sector` だけは株式（`asset_type=stock`）に
-限定し、Yahoo Finance の sector が取れない銘柄は集計から除く。市場価格と FX が
-取れない holding も除外する。`as_of` は価格を取得した時刻。
+`GET /portfolios/allocation` returns asset allocations aggregated in USD by required parameter `group_by` (`asset_type` / `currency` / `asset` / `sector`). `items` returns category name as `category`, USD valuation as `value`, component ratio (0–1) as `weight`, and count of holdings in the classification as `holdings_count`, sorted in descending order of `value`. Cash holdings are included as a category, but `group_by=sector` is restricted to stocks (`asset_type=stock`), excluding tickers whose Yahoo Finance sector cannot be retrieved. Holdings whose market price or FX cannot be obtained are also excluded. `as_of` represents the timestamp when prices were retrieved.
 
-`GET /portfolios/performance` は推移グラフを USD 建てで返す。`start_date`,
-`end_date`, `range`, `interval` を取る。`range` は `1d` / `1w` / `1m` / `3m` /
-`YTD` / `1y` / `all`（既定値 `all`）、`interval` は `1d` / `1wk` / `1mo`
-（既定値 `1d`）。日付を指定した場合はそちらが優先され、レスポンスの `range` は
-`null` になる。日次の評価額は `asset_data_history` の close price から組み立て、
-各日の保有数量は取引履歴を現在の holdings から差し戻して復元する。cash holding は
-期間中一定額として扱い、過去の FX は保存していないため現在のレートで換算する。
-レスポンスは `return_1d`, `return_1w`, `return_1m`, `return_3m`, `return_YTD`,
-`return_1y`, `return_total` をそれぞれ `{ amount, percent }` で返す。`today` は
-今日の close price と前日の close price の差分で計算し、各期間の return は今日の
-close price と対象期間の起点 close price（例: `1w` なら 1 週間前）の差分で計算する。
-評価額の系列は `range` に関わらず運用開始日（最初の取引日）から作るので、
-表示期間を絞っても `return_total` は変わらない。
+`GET /portfolios/performance` returns performance charts in USD. Accepts `start_date`, `end_date`, `range`, and `interval`. `range` accepts `1d` / `1w` / `1m` / `3m` / `YTD` / `1y` / `all` (default `all`), and `interval` accepts `1d` / `1wk` / `1mo` (default `1d`). If explicit dates are provided, they take precedence and response `range` becomes `null`. Daily valuation is constructed from close prices in `asset_data_history`, and daily holding quantities are reconstructed by tracing transactions back from current holdings. Cash holdings are treated as constant throughout the period, and past FX rates are converted using current rates since historical FX rates are not stored. Returns `return_1d`, `return_1w`, `return_1m`, `return_3m`, `return_YTD`, `return_1y`, and `return_total`, each formatted as `{ amount, percent }`. `today` is calculated as the difference between today's close price and previous day's close price, and return for each period is calculated as the difference between today's close price and the starting close price of the period (e.g. 1 week ago for `1w`). Valuation series are constructed from inception (first transaction date) regardless of `range`, so narrowing display range does not change `return_total`.
 
-`/transactions` の絞り込みは `transaction_type`, `asset_type`（既定値
-`all`）, `start_date`, `end_date`。`asset_id` と `search` は受け取らない。
-履歴取得は `items` に `date`, `symbol`, `name`, `asset_type`, `quantity`,
-`transaction_type`, `executed_price`, `executed_unit_price`, `realized_pl` を返す。
-`realized_pl` は sell のみ計算し、buy は `null`。`totals` はページング前の
-フィルタ適用後全件を対象に、`realized_pl`, `realized_pl_percent`, `currency`
-を返す。単件作成と一括作成の各 item は `ticker`, `name`, `position`,
-`order_type`, `transaction_type`, `quantity` を受け取り、成功時は作成された
-取引の確認として `date`, `symbol`, `name`, `executed_price`,
-`executed_unit_price`, `asset_type` の約定サマリーを返す。新しい asset を
-追加する場合は、Yahoo Finance API から取得した情報を `asset_master` に登録してから
-取引を作成する。取引登録時は常に `CASH-USD` holding を更新する。USD 以外の銘柄は
-約定金額を USD 換算し、`buy` は差し引き、`sell` は加える。
+Filtering for `/transactions` includes `transaction_type`, `asset_type` (default `all`), `start_date`, and `end_date`. `asset_id` and `search` are not accepted. History retrieval returns `date`, `symbol`, `name`, `asset_type`, `quantity`, `transaction_type`, `executed_price`, `executed_unit_price`, and `realized_pl` in `items`. `realized_pl` is calculated for `sell` only (`null` for `buy`). `totals` returns `realized_pl`, `realized_pl_percent`, and `currency` for all records matching filters prior to pagination. Single and batch creation items accept `ticker`, `name`, `position`, `order_type`, `transaction_type`, and `quantity`, returning execution summary of `date`, `symbol`, `name`, `executed_price`, `executed_unit_price`, and `asset_type` as confirmation of created transactions on success. When adding a new asset, information fetched from Yahoo Finance API is registered into `asset_master` before creating transactions. Transaction registration always updates the `CASH-USD` holding. Non-USD tickers have execution amounts converted to USD, subtracting for `buy` and adding for `sell`.
 
-### 設計メモ
+### Design Notes
 
-- **実際の証券発注は行わない。** 売買は取引履歴の記録、保有残高、cash holding
-  の更新だけを行う。
-- **所有者はログイン情報から解決する。** private API では client から
-  `user_id` も `portfolio_id` も受け取らない。backend 内部では
-  Supabase Auth user id と `portfolio.user_id` で対象データを解決する。
-- **`portfolio_id` はレスポンスで返さない。** private なポートフォリオデータは
-  ログイン情報から解決する想定で、クライアントには公開しない。
-- **React から直接読む private data は Supabase RLS で守る。** 重要な write と
-  ownership check は後続の SQLAlchemy 実装に寄せる。
-- **`current_price` は保存しない。** 市場価格は Yahoo Finance または
-  `asset_data_history` 由来で、Supabase `holdings` には書かない。
-- **`cash_balance` は cash holding として扱う。** portfolio table には保存せず、
-  `asset_type=cash` の asset を使って holdings に quantity `1` で登録する。
-- **`holdings` 一覧は investment holding だけを返す。** cash は summary の
-  `cash_balance` で扱い、holdings list には含めない。
-- **一括登録は全件検証してから更新する。** 1 件でも不正なら何も更新しない。
+- **No actual brokerage order execution.** Buying/selling only records transaction history and updates holdings balance and cash holding.
+- **Owner is resolved from login information.** Private APIs do not receive `user_id` or `portfolio_id` from client. Internally, backend resolves target data using Supabase Auth user id and `portfolio.user_id`.
+- **`portfolio_id` is not returned in responses.** Private portfolio data is assumed to be resolved from login context and is not exposed to client.
+- **Private data read directly from React is protected by Supabase RLS.** Critical writes and ownership checks are deferred to upcoming SQLAlchemy implementation.
+- **`current_price` is not stored.** Market prices originate from Yahoo Finance or `asset_data_history` and are not written to Supabase `holdings`.
+- **`cash_balance` is handled as a cash holding.** Not stored in portfolio table; registered in holdings with quantity `1` using asset of `asset_type=cash`.
+- **`holdings` list returns investment holdings only.** Cash is handled in summary `cash_balance` and not included in holdings list.
+- **Batch registration validates all items before updating.** If even 1 item is invalid, nothing is updated.
 
-Supabase のテーブル定義と将来の実装方針は
-[`API_DESIGN.md`](API_DESIGN.md) にまとめてある。
+Supabase table definitions and future implementation policies are summarized in [`API_DESIGN.md`](API_DESIGN.md).
 
-### 構成
+### Project Structure
 
 ```text
 app/
-├── schemas/       Marshmallow スキーマ（= OpenAPI 定義。ここが本体）
-│   ├── portfolio.py   サマリー / 配分 / 推移グラフ
-│   ├── asset.py       資産マスタ / 価格履歴
-│   ├── holding.py     保有残高
-│   ├── transaction.py 取引履歴
-│   └── common.py      共通バリデーターと pagination / date range
-├── api/           エンドポイント定義（パス・入出力・service 呼び出し）
-│   └── parameters.py  パスパラメータの OpenAPI 定義
-├── models/        SQLAlchemy モデル（Supabase public schema）
+├── schemas/       Marshmallow schemas (= OpenAPI definitions. Main source of truth)
+│   ├── portfolio.py   Summary / Allocation / Performance chart
+│   ├── asset.py       Asset master / Price history
+│   ├── holding.py     Holdings balance
+│   ├── transaction.py Transaction history
+│   └── common.py      Common validators, pagination / date range
+├── api/           Endpoint definitions (Paths, I/O, service calls)
+│   └── parameters.py  OpenAPI definitions for path parameters
+├── models/        SQLAlchemy models (Supabase public schema)
 │   ├── user.py        public.users
 │   ├── portfolio.py   portfolio
 │   ├── holding.py     holdings
 │   ├── asset.py       currency / asset_type / asset_master / asset_data_history
 │   │                  / currency_rate_history
 │   └── transaction.py transactions
-├── auth.py        Supabase access token を検証し g.current_user_id を設定する
+├── auth.py        Validates Supabase access token and sets g.current_user_id
 ├── enums.py       TransactionType / Interval
 ├── services/
-│   ├── common.py      service 共通の定数・認証ユーザー解決・Decimal 変換
-│   ├── market_data.py Yahoo Finance から価格・FX・sector を取得する
-│   ├── performance.py 推移グラフ（評価額の系列と期間別 return）の business logic
-│   ├── portfolio.py   portfolio / summary / holdings / allocation の business logic
-│   └── supabase.py    Flask app.config から Supabase client を作成する
-└── config.py      設定（OpenAPI / Supabase 設定を含む）
+│   ├── common.py      Service constants, authenticated user resolution, Decimal conversions
+│   ├── market_data.py Fetches prices, FX, and sector from Yahoo Finance
+│   ├── performance.py Business logic for performance charts (valuation series and period returns)
+│   ├── portfolio.py   Business logic for portfolio / summary / holdings / allocation
+│   └── supabase.py    Creates Supabase client from Flask app.config
+└── config.py      Configuration (Includes OpenAPI / Supabase settings)
 
 tests/
 ├── config.py
@@ -458,13 +360,11 @@ tests/
     └── test_supabase_user_rls.py
 
 scripts/
-├── create_test_user.py  Supabase Auth test user と public.users row を準備する
-└── generate_token.py    Swagger UI 手動テスト用の access token を生成する
+├── create_test_user.py  Prepares Supabase Auth test user and public.users row
+└── generate_token.py    Generates access token for manual Swagger UI testing
 ```
 
-### 未実装
+### Unimplemented Features
 
-assets、transactions の実 API 処理。
-summary / holdings / allocation / performance の read API、Supabase Auth token 検証、
-Yahoo Finance 価格・FX・sector 取得、
-SQLAlchemy 接続、DB migration 管理は実装済み。
+Actual API business logic for assets and transactions.
+Read APIs for summary / holdings / allocation / performance, Supabase Auth token validation, Yahoo Finance price/FX/sector fetching, SQLAlchemy connection, and DB migration management are already implemented.
