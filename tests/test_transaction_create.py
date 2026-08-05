@@ -32,6 +32,7 @@ class FakeMarketData:
         "UNKNOWNX": None,
     }
     listed_from = {}
+    closed_dates = set()
 
     def latest_price(self, ticker):
         return self.prices.get(ticker)
@@ -46,9 +47,11 @@ class FakeMarketData:
     def asset_meta(self, ticker):
         return self.meta.get(ticker)
 
-    def asset_exists_on_or_before(self, ticker, date):
+    def asset_tradable_on(self, ticker, date):
         listed_from = self.listed_from.get(ticker)
-        return listed_from is None or listed_from <= date
+        if listed_from is not None and listed_from > date:
+            return False
+        return date not in self.closed_dates
 
 
 class TransactionCreateEndpointTest(unittest.TestCase):
@@ -64,6 +67,7 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         FakeMarketData.fx_rates = {"JPY": decimal.Decimal("0.01"), "USD": decimal.Decimal("1")}
         FakeMarketData.historical_fx_rates = {}
         FakeMarketData.listed_from = {}
+        FakeMarketData.closed_dates = set()
 
         self.app = create_app("testing")
         self.client = self.app.test_client()
@@ -689,6 +693,32 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         holding = self._holding_for_ticker("IPO")
         self.assertEqual(float(holding.quantity), 1.0)
         self.assertEqual(self._cash_balance(), 9950.0)
+
+    def test_create_transaction_rejects_closed_trade_date(self):
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        closed_date = today - datetime.timedelta(days=1)
+        FakeMarketData.closed_dates = {closed_date}
+        payload = self._buy_payload("AAPL", "Apple Inc.", 1)
+        payload["price"] = 150
+        payload["trade_date"] = closed_date.isoformat()
+
+        response = self._post_transaction(payload)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Transactions.query.count(), 0)
+        self.assertEqual(self._cash_balance(), 10000.0)
+
+    def test_create_transaction_rejects_today_when_market_closed(self):
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        FakeMarketData.closed_dates = {today}
+        payload = self._buy_payload("AAPL", "Apple Inc.", 1)
+        payload["price"] = 150
+
+        response = self._post_transaction(payload)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Transactions.query.count(), 0)
+        self.assertEqual(self._cash_balance(), 10000.0)
 
     def test_create_transaction_backdated_jpy_uses_historical_fx(self):
         today = datetime.datetime.now(datetime.timezone.utc).date()

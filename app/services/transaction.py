@@ -24,7 +24,7 @@ PRICE_UNAVAILABLE_MESSAGE = "Unable to fetch a live price for this ticker."
 FX_UNAVAILABLE_MESSAGE = "Unable to fetch an FX rate for this ticker currency."
 UNSUPPORTED_ASSET_MESSAGE = "Unable to register this ticker."
 ASSET_NOT_TRADABLE_ON_DATE_MESSAGE = (
-    "Ticker did not exist on or before the requested trade_date."
+    "Ticker is not tradable on the requested trade_date."
 )
 
 # Yahoo Finance の `quoteType` -> `asset_type.asset_type`。
@@ -357,11 +357,9 @@ def _item_price(item, asset, market_data, today, trade_date):
 
 
 def _ensure_asset_tradable_on_date(asset, trade_date, today, market_data):
-    if trade_date >= today:
+    if not hasattr(market_data, "asset_tradable_on"):
         return
-    if not hasattr(market_data, "asset_exists_on_or_before"):
-        return
-    if not market_data.asset_exists_on_or_before(asset.ticker, trade_date):
+    if not market_data.asset_tradable_on(asset.ticker, trade_date):
         abort(400, message=ASSET_NOT_TRADABLE_ON_DATE_MESSAGE)
 
 
