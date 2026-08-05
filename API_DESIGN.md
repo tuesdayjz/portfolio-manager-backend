@@ -295,6 +295,7 @@ React user には通常の `INSERT` / `UPDATE` / `DELETE` policy を追加しな
 | `asset_type` | stock, bond, etf などの asset type |
 | `asset_master` | ticker, name, asset_type_id, currency_id |
 | `asset_data_history` | historical close price |
+| `currency_rate_history` | 通貨ごとの USD 建て historical close rate |
 
 logged-in user は shared tables を read できる。write 方針は SQLAlchemy branch
 で backend DB 実装と合わせて整理する。
@@ -375,6 +376,19 @@ ownership は `transactions -> holdings -> portfolio -> users` で解決する�
 | `asset_id` | uuid | `asset_master.id` を参照 |
 | `price_date` | date | market price date |
 | `close_price` | numeric | historical close price |
+
+#### `currency_rate_history`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | uuid | history row id |
+| `currency_id` | uuid | `currency.id` を参照 |
+| `rate_date` | date | rate date |
+| `close_price` | numeric | 1 通貨単位あたりの USD 建て終値 |
+
+`close_price` の向きは Yahoo Finance の `<CUR>USD=X` と同じ（例: `JPYUSD=X`）。
+USD 自身のレートは常に 1 なので row を持たない。`(currency_id, rate_date)` が
+unique。
 
 ## Supabase Client / Config
 
