@@ -101,7 +101,8 @@ class PortfolioCreateEndpointTest(unittest.TestCase):
                 average_cost_before NUMERIC,
                 cash_balance_before NUMERIC,
                 created_at DATETIME NOT NULL,
-                transaction_type TEXT NOT NULL
+                transaction_type TEXT NOT NULL,
+                position TEXT NOT NULL DEFAULT 'long'
             )
             """,
             """

@@ -128,7 +128,8 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
                 average_cost_before NUMERIC,
                 cash_balance_before NUMERIC,
                 created_at DATETIME NOT NULL,
-                transaction_type TEXT NOT NULL DEFAULT ''
+                transaction_type TEXT NOT NULL DEFAULT '',
+                position TEXT NOT NULL DEFAULT 'long'
             )
             """,
             """
@@ -325,6 +326,39 @@ class PortfolioPerformanceEndpointTest(unittest.TestCase):
                 (self._days_ago(7).isoformat(), 900),
                 (self._days_ago(1).isoformat(), 950),
                 (self.today.isoformat(), 1000),
+            ],
+        )
+
+    def test_performance_short_position_excluded_from_value_series(self):
+        """A short is a liability, not an asset, so it must not move the
+        performance graph's total_market_value even as its price changes.
+        Cash is also excluded from this graph by default (asset_type=all),
+        so the series stays flat at 0."""
+
+        portfolio = self._create_portfolio()
+        cash = self._asset("CASH-USD", "Cash USD", self.cash_type, self.usd)
+        apple = self._asset("AAPL", "Apple Inc.", self.stock_type, self.usd)
+        self._holding(portfolio, cash, quantity=1, average_cost=1000)
+        self._holding(portfolio, apple, quantity=-10, average_cost=100)
+        self._prices(
+            apple,
+            {
+                self._days_ago(2): 100,
+                self._days_ago(1): 90,
+                self.today: 80,
+            },
+        )
+
+        response = self._get_performance()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(
+            [(point["date"], point["total_market_value"]) for point in data["points"]],
+            [
+                (self._days_ago(2).isoformat(), 0),
+                (self._days_ago(1).isoformat(), 0),
+                (self.today.isoformat(), 0),
             ],
         )
 

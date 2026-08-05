@@ -103,7 +103,8 @@ class TransactionHistoryEndpointTest(unittest.TestCase):
                 average_cost_before NUMERIC,
                 cash_balance_before NUMERIC,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                transaction_type TEXT NOT NULL
+                transaction_type TEXT NOT NULL,
+                position TEXT NOT NULL DEFAULT 'long'
             )
             """,
         ]
@@ -296,6 +297,7 @@ class TransactionHistoryEndpointTest(unittest.TestCase):
         body = response.get_json()
         self.assertEqual(len(body["items"]), 3)
         self.assertEqual([item["symbol"] for item in body["items"]], ["SPY", "AAPL", "AAPL"])
+        self.assertEqual(body["items"][0]["position"], "long")
         self.assertEqual(body["items"][0]["transaction_type"], "sell")
         self.assertEqual(body["items"][0]["quantity"], 1.0)
         self.assertEqual(body["items"][0]["executed_unit_price"], 420.0)
@@ -313,6 +315,77 @@ class TransactionHistoryEndpointTest(unittest.TestCase):
             body["pagination"],
             {"page": 1, "per_page": 5, "total_items": 3, "total_pages": 1},
         )
+
+    def test_get_transactions_short_position_realized_pl_on_cover(self):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        currency = Currency.query.filter_by(currency="USD").one()
+        stock_type = AssetType.query.filter_by(asset_type="stock").one()
+        tsla = AssetMaster(
+            id=uuid.uuid4(),
+            ticker="TSLA",
+            name="Tesla Inc.",
+            asset_type=stock_type,
+            currency=currency,
+        )
+        tsla_holding = Holdings(
+            id=uuid.uuid4(),
+            portfolio_id=self.portfolio_id,
+            asset=tsla,
+            quantity=decimal.Decimal("0"),
+            average_cost=decimal.Decimal("200"),
+            updated_at=now,
+        )
+        db.session.add_all(
+            [
+                tsla,
+                tsla_holding,
+                Transactions(
+                    id=uuid.uuid4(),
+                    holding=tsla_holding,
+                    trade_date=datetime.date(2026, 6, 3),
+                    quantity=decimal.Decimal("5"),
+                    price=decimal.Decimal("200"),
+                    fees=decimal.Decimal("0"),
+                    average_cost_before=decimal.Decimal("0"),
+                    created_at=now + datetime.timedelta(minutes=4),
+                    transaction_type="sell",
+                    position="short",
+                ),
+                Transactions(
+                    id=uuid.uuid4(),
+                    holding=tsla_holding,
+                    trade_date=datetime.date(2026, 6, 4),
+                    quantity=decimal.Decimal("5"),
+                    price=decimal.Decimal("150"),
+                    fees=decimal.Decimal("0"),
+                    average_cost_before=decimal.Decimal("200"),
+                    created_at=now + datetime.timedelta(minutes=5),
+                    transaction_type="buy",
+                    position="short",
+                ),
+            ]
+        )
+        db.session.commit()
+
+        response = self._get_history({"page": 1, "per_page": 10})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        items_by_key = {
+            (item["symbol"], item["transaction_type"], item["executed_unit_price"]): item
+            for item in body["items"]
+        }
+        open_short = items_by_key[("TSLA", "sell", 200.0)]
+        cover = items_by_key[("TSLA", "buy", 150.0)]
+        self.assertEqual(open_short["position"], "short")
+        self.assertEqual(cover["position"], "short")
+        # Opening a short (sell) doesn't realize P&L, same as opening a long (buy).
+        self.assertIsNone(open_short["realized_pl"])
+        self.assertIsNone(open_short["realized_pl_percent"])
+        # Covering a short (buy) realizes P&L inverted from closing a long:
+        # profit when the cover price is below the average entry price.
+        self.assertEqual(cover["realized_pl"], 250.0)
+        self.assertEqual(cover["realized_pl_percent"], 25.0)
 
     def test_get_transactions_filters_by_type_asset_and_date(self):
         response = self._get_history(

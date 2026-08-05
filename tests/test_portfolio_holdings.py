@@ -120,7 +120,8 @@ class PortfolioHoldingsEndpointTest(unittest.TestCase):
                 average_cost_before NUMERIC,
                 cash_balance_before NUMERIC,
                 created_at DATETIME NOT NULL,
-                transaction_type TEXT NOT NULL
+                transaction_type TEXT NOT NULL,
+                position TEXT NOT NULL DEFAULT 'long'
             )
             """,
             """
@@ -258,6 +259,47 @@ class PortfolioHoldingsEndpointTest(unittest.TestCase):
         self.assertEqual(item["today_return_percent"], 25)
         self.assertEqual(item["total_return_percent"], 25)
         self.assertEqual(item["currency"], "USD")
+
+    def test_holdings_includes_short_position_with_negative_value_and_inverted_return(self):
+        portfolio = self._create_portfolio()
+        stock = self._asset("AAPL", "Apple Inc.", self.stock_type, self.usd)
+        self._holding(portfolio, stock, quantity=-10, average_cost=80)
+        self._history(stock, 90)
+        FakeMarketData.prices = {"AAPL": 100}
+        FakeMarketData.fx_rates = {}
+
+        response = self._get_holdings()
+
+        self.assertEqual(response.status_code, 200)
+        item = response.get_json()["items"][0]
+        self.assertEqual(item["quantity"], -10)
+        self.assertEqual(item["total_purchase_price"], -800)
+        # A short's market value is a liability (negative) and its position gains
+        # value when the price falls, so the return is the inverse of the raw
+        # price change (price is up from the 80 entry, so the short is losing).
+        self.assertEqual(item["total_market_value"], -1000)
+        self.assertEqual(item["today_return_percent"], -25)
+        self.assertEqual(item["total_return_percent"], -25)
+
+    def test_holdings_short_position_gains_value_when_price_falls(self):
+        portfolio = self._create_portfolio()
+        stock = self._asset("AAPL", "Apple Inc.", self.stock_type, self.usd)
+        self._holding(portfolio, stock, quantity=-10, average_cost=100)
+        self._history(stock, 90)
+        FakeMarketData.prices = {"AAPL": 80}
+        FakeMarketData.fx_rates = {}
+
+        response = self._get_holdings()
+
+        self.assertEqual(response.status_code, 200)
+        item = response.get_json()["items"][0]
+        self.assertEqual(item["total_market_value"], -800)
+        self.assertEqual(item["total_return_percent"], 20)
+        # Shorts are excluded from the aggregate totals - they're a liability,
+        # not part of "total assets".
+        totals = response.get_json()["totals"]
+        self.assertEqual(totals["market_value"], 0)
+        self.assertEqual(totals["day_change"], 0)
 
     def test_holdings_converts_non_usd_stock_to_usd(self):
         portfolio = self._create_portfolio()
