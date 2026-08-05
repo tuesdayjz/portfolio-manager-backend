@@ -15,6 +15,7 @@ from app.schemas.portfolio import (
     PortfolioCreateSchema,
     PortfolioSummarySchema,
 )
+from app.schemas.transaction import CashTransactionItemSchema, CashTransactionSchema
 from app.services.performance import get_portfolio_performance
 from app.services.portfolio import (
     create_portfolio,
@@ -22,6 +23,7 @@ from app.services.portfolio import (
     get_portfolio_holdings,
     get_portfolio_summary,
 )
+from app.services.transaction import create_cash_transaction
 
 blp = Blueprint(
     "portfolio",
@@ -64,6 +66,24 @@ class PortfolioSummary(MethodView):
         """
         require_auth()
         return get_portfolio_summary()
+
+
+@blp.route("/capital")
+class PortfolioCapital(MethodView):
+    @blp.doc(security=[{"bearerAuth": []}])
+    @blp.arguments(CashTransactionItemSchema)
+    @blp.response(201, CashTransactionSchema)
+    @blp.alt_response(400, description="Cannot withdraw more than current cash balance")
+    @blp.alt_response(404, description=PORTFOLIO_NOT_FOUND)
+    def post(self, payload):
+        """現金を入金・出金する。
+
+        `transaction_type` は `deposit`（入金）か `withdrawal`（出金）のみ。
+        現金残高だけを更新し、他の holding には影響しない。出金額が残高を
+        超える場合は 400。
+        """
+        require_auth()
+        return create_cash_transaction(payload)
 
 
 @blp.route("/holdings")

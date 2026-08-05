@@ -208,6 +208,46 @@ class TransactionPageSchema(Schema):
     pagination = fields.Nested(PaginationSchema, required=True)
 
 
+class CashTransactionItemSchema(Schema):
+    """現金の入金・出金 1 件分の作成内容。ポートフォリオの現金残高だけを変更し、
+    どの holding の quantity / average_cost にも影響しない。
+    """
+
+    transaction_type = fields.Enum(
+        TransactionType, by_value=True, required=True,
+        validate=validate.OneOf([TransactionType.DEPOSIT, TransactionType.WITHDRAWAL]),
+        metadata={"example": "deposit"},
+    )
+    amount = fields.Float(
+        required=True, validate=POSITIVE,
+        metadata={"description": "入金・出金額", "example": 5000},
+    )
+
+
+class CashTransactionSchema(Schema):
+    """入金・出金作成成功時に返す約定サマリー。"""
+
+    date = fields.DateTime(
+        required=True,
+        metadata={"description": "約定日時", "example": "2026-08-05T18:00:00"},
+    )
+    transaction_type = fields.Str(
+        required=True,
+        validate=validate.OneOf(
+            [TransactionType.DEPOSIT.value, TransactionType.WITHDRAWAL.value]
+        ),
+        metadata={"example": "deposit"},
+    )
+    amount = fields.Float(
+        required=True, validate=NON_NEGATIVE,
+        metadata={"description": "入金・出金額", "example": 5000},
+    )
+    cash_balance = fields.Float(
+        required=True, validate=NON_NEGATIVE,
+        metadata={"description": "取引後の現金残高", "example": 15000},
+    )
+
+
 class TransactionBatchCreateSchema(Schema):
     """取引の一括登録。全件を検証してから保有残高を更新する。"""
 
