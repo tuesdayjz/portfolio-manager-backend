@@ -2,7 +2,8 @@
 
 取引履歴から日付ごとの保有数量を復元し、`asset_data_history` の終値で
 日次の USD 評価額を組み立てる。グラフの点も各期間の騰落も、すべてこの
-1 本の評価額系列から計算する。
+1 本の評価額系列から計算する。`asset_type` を指定した場合は、その資産クラスの
+holding だけで系列を組み立てる。
 
 現時点の割り切り:
 
@@ -30,6 +31,9 @@ from app.services.common import (
 )
 from app.services.market_data import YahooFinanceMarketData
 
+#: `asset_type` を絞り込まないときの値（UI の `All`）。
+ALL_ASSET_TYPES = "all"
+
 _RANGE_DAYS = {
     PerformanceRange.DAY: 1,
     PerformanceRange.WEEK: 7,
@@ -47,11 +51,14 @@ def get_portfolio_performance(args, market_data=None):
     portfolio = current_portfolio()
     market_data = market_data or YahooFinanceMarketData()
     interval = args.get("interval") or Interval.DAILY
+    asset_type_filter = (args.get("asset_type") or ALL_ASSET_TYPES).lower()
     today = datetime.date.today()
     # 未来日を指定されても、評価できるのは今日までしかない。
     end_date = min(args.get("end_date") or today, today)
 
-    positions, cash_value = _performance_positions(portfolio.id, market_data)
+    positions, cash_value = _performance_positions(
+        portfolio.id, market_data, asset_type_filter
+    )
     price_history = _price_history(positions, end_date)
     inception = _inception_date(positions, price_history, end_date)
     start_date, response_range = _performance_window(args, inception, end_date)
@@ -69,6 +76,7 @@ def get_portfolio_performance(args, market_data=None):
         "range": response_range,
         "start_date": start_date,
         "end_date": end_date,
+        "asset_type": asset_type_filter,
         "metrics": {
             "portfolio_value": float(as_of_value),
             "today": returns["return_1d"],
@@ -82,8 +90,12 @@ def get_portfolio_performance(args, market_data=None):
     }
 
 
-def _performance_positions(portfolio_id, market_data):
-    """Split holdings into priced positions and a flat USD cash balance."""
+def _performance_positions(portfolio_id, market_data, asset_type_filter):
+    """Split holdings into priced positions and a flat USD cash balance.
+
+    `asset_type_filter` が `all` 以外なら、その資産クラスの holding だけを
+    残す。現金は `cash` を指定したときだけ含まれる。
+    """
 
     holdings = (
         db.session.execute(
@@ -101,12 +113,18 @@ def _performance_positions(portfolio_id, market_data):
     for holding in holdings:
         asset = holding.asset
         asset_type = getattr(getattr(asset, "asset_type", None), "asset_type", None)
+        asset_type_value = (asset_type or "").lower()
+        if (
+            asset_type_filter != ALL_ASSET_TYPES
+            and asset_type_value != asset_type_filter
+        ):
+            continue
         fx_rate = decimal_or_none(market_data.fx_to_usd(asset_currency(asset)))
         if fx_rate is None:
             continue
 
         quantity = decimal_or_zero(holding.quantity)
-        if (asset_type or "").lower() == "cash":
+        if asset_type_value == "cash":
             # cash holding は quantity=1、average_cost に残高が入る。
             cash_value += quantity * decimal_or_zero(holding.average_cost) * fx_rate
             continue
