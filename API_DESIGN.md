@@ -65,10 +65,10 @@ private portfolio data では client から owner identifier を受け取らな�
 
 - response currency は `USD` 固定。`currency_symbol` は USD の symbol、未設定なら `$`。
 - `cash_balance` は cash holding の `average_cost * quantity` を USD 換算して合計する。
-- `total_market_value` は cash 以外の holding だけを対象に、Yahoo Finance の現在価格、
-  quantity、FX で USD 評価額を計算する。
-- `total_return_percent` は cash 以外の holding の市場評価額と
-  `average_cost * quantity` の USD 換算取得価額から計算する。
+- `total_market_value` は cash balance と cash 以外の holding の市場評価額を
+  USD 換算して合計する。
+- `total_return_percent` は cash balance を含む資産総額から計算する。buy/sell は
+  内部の資産移動として除外し、外部キャッシュフローは deposit/withdrawal で調整する。
 - Yahoo price / FX が取れない holding は集計から除外する。
 
 `GET /portfolios/holdings` の filter:
