@@ -166,17 +166,22 @@ def create_transactions_batch(payload, market_data=None):
     return results
 
 
-def create_cash_transaction(payload):
+def create_cash_transaction(payload, market_data=None):
     """現金を入金・出金し、約定サマリーを返す。ticker/holdings の quantity や
     average_cost には触れず、cash holding の残高だけを更新する。
     """
 
     portfolio = _portfolio_for_current_user()
+    market_data = market_data or YahooFinanceMarketData()
     transaction_type = payload["transaction_type"]
     amount = decimal.Decimal(str(payload["amount"]))
+    today = _utc_today()
 
     try:
         result = _create_cash_transaction_line(portfolio, transaction_type, amount)
+        db.session.flush()
+        starting_cash = _starting_cash_baseline(portfolio.id, market_data, today)
+        _replay_portfolio_transactions(portfolio.id, market_data, today, starting_cash)
         db.session.commit()
     except HTTPException:
         db.session.rollback()
@@ -210,6 +215,7 @@ def _create_cash_transaction_line(portfolio, transaction_type, amount):
             quantity=amount,
             price=decimal.Decimal("1"),
             average_cost_before=None,
+            cash_balance_before=cash_balance,
             transaction_type=transaction_type.value,
         )
     )
@@ -442,6 +448,10 @@ def _replay_portfolio_transactions(portfolio_id, market_data, today, starting_ca
     now = datetime.datetime.now(datetime.timezone.utc)
 
     for transaction, holding, asset in rows:
+        if _is_cash_timeline_transaction(transaction, asset):
+            transaction.average_cost_before = None
+            continue
+
         asset_id = holding.asset_id
         state = states.setdefault(
             asset_id,
@@ -511,6 +521,9 @@ def _starting_cash_baseline(portfolio_id, market_data, today):
     cash_balance = _decimal_or_zero(cash_holding.average_cost)
 
     for transaction, _holding, asset in _portfolio_transaction_timeline(portfolio_id):
+        if _is_cash_timeline_transaction(transaction, asset):
+            continue
+
         quantity = _decimal_or_zero(transaction.quantity)
         price = _decimal_or_zero(transaction.price)
         fx_rate = _fx_to_usd_for_trade(
@@ -523,6 +536,13 @@ def _starting_cash_baseline(portfolio_id, market_data, today):
             cash_balance += trade_amount_usd
 
     return cash_balance
+
+
+def _is_cash_timeline_transaction(transaction, asset):
+    transaction_type = transaction.transaction_type
+    if transaction_type in {"deposit", "withdrawal"}:
+        return True
+    return getattr(asset, "ticker", None) == "CASH-USD"
 
 
 def _fx_to_usd_for_trade(market_data, currency, trade_date, today):
