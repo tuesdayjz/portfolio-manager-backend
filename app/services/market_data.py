@@ -1,12 +1,23 @@
-"""Market data helpers backed by Yahoo Finance."""
-
+import threading
+import time
 from decimal import Decimal, InvalidOperation
 
 
 class YahooFinanceMarketData:
-    """Fetch latest prices, FX rates and sectors from Yahoo Finance with per-request cache."""
+    """Fetch latest prices, FX rates and sectors from Yahoo Finance with server-side TTL cache."""
 
-    def __init__(self):
+    DEFAULT_TTL_SECONDS = 3600  # Default 1h cache TTL
+    _cache_lock = threading.Lock()
+    _shared_prices = {}
+    _shared_latest_closes = {}
+    _shared_fx_rates = {}
+    _shared_sectors = {}
+    _shared_historical_fx_rates = {}
+    _shared_asset_tradability = {}
+    _shared_asset_meta = {}
+
+    def __init__(self, ttl_seconds=DEFAULT_TTL_SECONDS):
+        self.ttl_seconds = ttl_seconds
         self._prices = {}
         self._latest_closes = {}
         self._fx_rates = {}
@@ -15,13 +26,42 @@ class YahooFinanceMarketData:
         self._sectors = {}
         self._asset_meta = {}
 
+    @classmethod
+    def clear_cache(cls):
+        """Clear all server-side cached market data."""
+        with cls._cache_lock:
+            cls._shared_prices.clear()
+            cls._shared_latest_closes.clear()
+            cls._shared_fx_rates.clear()
+            cls._shared_sectors.clear()
+            cls._shared_historical_fx_rates.clear()
+            cls._shared_asset_tradability.clear()
+            cls._shared_asset_meta.clear()
+
     def latest_price(self, ticker):
         ticker = (ticker or "").strip()
         if not ticker:
             return None
-        if ticker not in self._prices:
-            self._prices[ticker] = self._fetch_latest_price(ticker)
-        return self._prices[ticker]
+
+        if ticker in self._prices:
+            return self._prices[ticker]
+
+        now = time.time()
+        with self._cache_lock:
+            if ticker in self._shared_prices:
+                val, ts = self._shared_prices[ticker]
+                if now - ts < self.ttl_seconds:
+                    self._prices[ticker] = val
+                    return val
+
+        price = self._fetch_latest_price(ticker)
+
+        with self._cache_lock:
+            if price is not None:
+                self._shared_prices[ticker] = (price, now)
+            self._prices[ticker] = price
+
+        return price
 
     def latest_prices(self, tickers):
         """Fetch uncached ticker prices in one Yahoo Finance request."""
@@ -50,17 +90,51 @@ class YahooFinanceMarketData:
         ticker = (ticker or "").strip()
         if not ticker:
             return None
-        if ticker not in self._latest_closes:
-            self._latest_closes[ticker] = self._fetch_latest_close(ticker)
-        return self._latest_closes[ticker]
+
+        if ticker in self._latest_closes:
+            return self._latest_closes[ticker]
+
+        now = time.time()
+        with self._cache_lock:
+            if ticker in self._shared_latest_closes:
+                val, ts = self._shared_latest_closes[ticker]
+                if now - ts < self.ttl_seconds:
+                    self._latest_closes[ticker] = val
+                    return val
+
+        price = self._fetch_latest_close(ticker)
+
+        with self._cache_lock:
+            if price is not None:
+                self._shared_latest_closes[ticker] = (price, now)
+            self._latest_closes[ticker] = price
+
+        return price
 
     def fx_to_usd(self, currency):
         currency = (currency or "USD").strip().upper()
         if currency == "USD":
             return Decimal("1")
-        if currency not in self._fx_rates:
-            self._fx_rates[currency] = self.latest_price(f"{currency}USD=X")
-        return self._fx_rates[currency]
+
+        if currency in self._fx_rates:
+            return self._fx_rates[currency]
+
+        now = time.time()
+        with self._cache_lock:
+            if currency in self._shared_fx_rates:
+                val, ts = self._shared_fx_rates[currency]
+                if now - ts < self.ttl_seconds:
+                    self._fx_rates[currency] = val
+                    return val
+
+        rate = self.latest_price(f"{currency}USD=X")
+
+        with self._cache_lock:
+            if rate is not None:
+                self._shared_fx_rates[currency] = (rate, now)
+            self._fx_rates[currency] = rate
+
+        return rate
 
     def fx_to_usd_on(self, currency, date):
         currency = (currency or "USD").strip().upper()
@@ -68,19 +142,50 @@ class YahooFinanceMarketData:
             return Decimal("1")
 
         key = (currency, date)
-        if key not in self._historical_fx_rates:
-            self._historical_fx_rates[key] = self._fetch_historical_fx_rate(
-                currency, date
-            )
-        return self._historical_fx_rates[key]
+        if key in self._historical_fx_rates:
+            return self._historical_fx_rates[key]
+
+        now = time.time()
+        with self._cache_lock:
+            if key in self._shared_historical_fx_rates:
+                val, ts = self._shared_historical_fx_rates[key]
+                if now - ts < self.ttl_seconds:
+                    self._historical_fx_rates[key] = val
+                    return val
+
+        rate = self._fetch_historical_fx_rate(currency, date)
+
+        with self._cache_lock:
+            if rate is not None:
+                self._shared_historical_fx_rates[key] = (rate, now)
+            self._historical_fx_rates[key] = rate
+
+        return rate
 
     def sector(self, ticker):
         ticker = (ticker or "").strip()
         if not ticker:
             return None
-        if ticker not in self._sectors:
-            self._sectors[ticker] = self._fetch_sector(ticker)
-        return self._sectors[ticker]
+
+        if ticker in self._sectors:
+            return self._sectors[ticker]
+
+        now = time.time()
+        with self._cache_lock:
+            if ticker in self._shared_sectors:
+                val, ts = self._shared_sectors[ticker]
+                if now - ts < self.ttl_seconds:
+                    self._sectors[ticker] = val
+                    return val
+
+        sec = self._fetch_sector(ticker)
+
+        with self._cache_lock:
+            if sec is not None:
+                self._shared_sectors[ticker] = (sec, now)
+            self._sectors[ticker] = sec
+
+        return sec
 
     def asset_meta(self, ticker):
         """Return `{"quote_type": ..., "currency": ...}` for a new ticker, or None."""
@@ -196,6 +301,7 @@ class YahooFinanceMarketData:
     def _fetch_historical_fx_rate(self, currency, date):
         try:
             import datetime
+
             import yfinance as yf
 
             end = date + datetime.timedelta(days=1)
@@ -222,6 +328,7 @@ class YahooFinanceMarketData:
     def _fetch_asset_tradable_on(self, ticker, date):
         try:
             import datetime
+
             import yfinance as yf
 
             end = date + datetime.timedelta(days=1)
