@@ -424,6 +424,7 @@ def get_portfolio_allocation(args, market_data=None):
         .order_by(AssetMaster.ticker)
     ).scalars()
 
+    priced_holdings = []
     for holding in holdings:
         asset = holding.asset
         asset_type = getattr(getattr(asset, "asset_type", None), "asset_type", None)
@@ -431,7 +432,50 @@ def get_portfolio_allocation(args, market_data=None):
         # sector を持つのは株式だけなので、それ以外は集計から除く。
         if group_by is AllocationGroupBy.SECTOR and asset_type_value != "stock":
             continue
-        currency = asset_currency(asset)
+        quantity = decimal_or_zero(holding.quantity)
+        # ショート（負の quantity）は負債であり資産ではないので、配分グラフからは
+        # 除く。cash holding は quantity=1 なのでこの判定の対象外。
+        if asset_type_value != "cash" and quantity <= 0:
+            continue
+        priced_holdings.append(
+            (holding, asset, asset_type, asset_type_value, asset_currency(asset))
+        )
+
+    # 銘柄価格と非 USD 通貨の FX を Yahoo Finance のバッチAPIでまとめて取得する。
+    # injected market data implementations that only expose latest_price remain
+    # supported for callers outside the production endpoint.
+    if hasattr(market_data, "latest_prices"):
+        tickers = [
+            getattr(asset, "ticker", None)
+            for (
+                _holding,
+                asset,
+                _asset_type,
+                asset_type_value,
+                _currency,
+            ) in priced_holdings
+            if asset_type_value != "cash"
+        ]
+        fx_tickers = [
+            f"{currency}USD=X"
+            for (
+                _holding,
+                _asset,
+                _asset_type,
+                _asset_type_value,
+                currency,
+            ) in priced_holdings
+            if currency != SUMMARY_CURRENCY
+        ]
+        market_data.latest_prices([*tickers, *fx_tickers])
+
+    for (
+        holding,
+        asset,
+        asset_type,
+        asset_type_value,
+        currency,
+    ) in priced_holdings:
         fx_rate = decimal_or_none(market_data.fx_to_usd(currency))
         if fx_rate is None:
             continue
@@ -441,10 +485,6 @@ def get_portfolio_allocation(args, market_data=None):
             # cash holding は quantity=1、average_cost に残高が入っている。
             value = quantity * decimal_or_zero(holding.average_cost) * fx_rate
         else:
-            # ショート（負の quantity）は負債であり資産ではないので、
-            # 配分グラフからは除く。
-            if quantity <= 0:
-                continue
             current_price = decimal_or_none(
                 market_data.latest_price(getattr(asset, "ticker", None))
             )
