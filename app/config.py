@@ -64,6 +64,10 @@ class BaseConfig:
         # 使う前に生存確認し、古いコネクションは寝かせずに捨てる。
         "pool_pre_ping": True,
         "pool_recycle": 300,
+        # Supabase pooler は pgbouncer の transaction モードで動くため、
+        # psycopg3 のサーバーサイド prepared statement と競合する。
+        # prepare_threshold=None で無効化する。
+        "connect_args": {"prepare_threshold": None},
     }
 
     # ---- OpenAPI / Swagger ----------------------------------------------
