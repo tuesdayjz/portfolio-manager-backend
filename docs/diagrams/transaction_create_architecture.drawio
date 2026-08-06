@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="31.0.2">
+  <diagram id="transaction-create-architecture" name="Create Transaction Architecture">
+    <mxGraphModel dx="1500" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1120" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="Create Transaction Architecture" style="text;html=1;strokeColor=none;fillColor=none;fontSize=24;fontStyle=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="350" y="20" width="800" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="api_tx" value="Transaction API&#xa;POST /api/v1/transactions&#xa;POST /api/v1/transactions/batch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="50" y="130" width="260" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="api_capital" value="Capital API&#xa;POST /api/v1/portfolios/capital&#xa;deposit / withdrawal" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="50" y="800" width="260" height="100" as="geometry" />
+        </mxCell>
+
+        <mxCell id="service_entry" value="Transaction Service&#xa;create_transaction() / batch" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="390" y="120" width="260" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="common_validation" value="Common Validation&#xa;quantity is positive integer&#xa;trade_date is not future&#xa;asset can be registered" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="390" y="250" width="260" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="market_data" value="Market Data Dependency&#xa;price resolver&#xa;today: request price or live/latest close&#xa;historical: trade-date FX and tradability" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="710" y="180" width="300" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="decision" value="trade_date&#xa;today?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="450" y="410" width="140" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="today_path" value="Today Fast Path&#xa;1. Use resolved execution price&#xa;2. Check current cash / qty&#xa;3. Update current holding and CASH-USD incrementally&#xa;4. Insert one transaction row" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;fontStyle=1;align=left;spacingLeft=12;" vertex="1" parent="1">
+          <mxGeometry x="210" y="550" width="310" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="historical_path" value="Historical Replay Path&#xa;1. Insert requested transaction first&#xa;2. Infer starting cash from current CASH-USD by reversing buy/sell only&#xa;3. Replay full timeline by trade_date ASC, created_at ASC&#xa;4. Rewrite later average_cost_before and cash_balance_before" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;fontStyle=1;align=left;spacingLeft=12;" vertex="1" parent="1">
+          <mxGeometry x="650" y="520" width="350" height="210" as="geometry" />
+        </mxCell>
+
+        <mxCell id="capital_service" value="Capital Transaction Flow&#xa;1. Update CASH-USD for deposit / withdrawal&#xa;2. Record capital transaction with cash_balance_before&#xa;3. Treat cash change as original account cash&#xa;4. Replay buy/sell cash_balance_before immediately" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;fontStyle=1;align=left;spacingLeft=12;" vertex="1" parent="1">
+          <mxGeometry x="390" y="800" width="300" height="180" as="geometry" />
+        </mxCell>
+
+        <mxCell id="persistence" value="Persistence and Final State&#xa;&#xa;transactions&#xa;- trade_date, quantity, price&#xa;- average_cost_before&#xa;- cash_balance_before&#xa;&#xa;holdings&#xa;- asset quantity&#xa;- average_cost&#xa;- CASH-USD.average_cost&#xa;&#xa;failure behavior&#xa;- insufficient cash / qty rolls back request" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;align=left;spacingLeft=20;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="300" width="320" height="360" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend" value="Legend" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#666666;verticalAlign=top;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="50" y="1010" width="620" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="leg_api" value="" style="rounded=0;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="legend">
+          <mxGeometry x="15" y="32" width="28" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="leg_api_t" value="API" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;" vertex="1" parent="legend">
+          <mxGeometry x="50" y="30" width="70" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="leg_service" value="" style="rounded=0;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="legend">
+          <mxGeometry x="130" y="32" width="28" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="leg_service_t" value="Service" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;" vertex="1" parent="legend">
+          <mxGeometry x="165" y="30" width="80" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="leg_replay" value="" style="rounded=0;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="legend">
+          <mxGeometry x="260" y="32" width="28" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="leg_replay_t" value="Replay" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;" vertex="1" parent="legend">
+          <mxGeometry x="295" y="30" width="80" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="leg_db" value="" style="rounded=0;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="legend">
+          <mxGeometry x="390" y="32" width="28" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="leg_db_t" value="DB / state" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;" vertex="1" parent="legend">
+          <mxGeometry x="425" y="30" width="90" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_api_service" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="api_tx" target="service_entry">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_service_validation" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="service_entry" target="common_validation">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_validation_market" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;exitX=1;exitY=0.45;entryX=0;entryY=0.65;" edge="1" parent="1" source="common_validation" target="market_data">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_validation_decision" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="common_validation" target="decision">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_today" value="today" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;fontSize=11;exitX=0.25;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="decision" target="today_path">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_historical" value="historical" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;labelBackgroundColor=#ffffff;fontSize=11;exitX=0.75;exitY=1;entryX=0.5;entryY=0;" edge="1" parent="1" source="decision" target="historical_path">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_hist_db" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;exitX=1;exitY=0.45;entryX=0;entryY=0.58;" edge="1" parent="1" source="historical_path" target="persistence">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_api_capital" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="api_capital" target="capital_service">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_capital_db" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;exitX=1;exitY=0.35;entryX=0.2;entryY=1;" edge="1" parent="1" source="capital_service" target="persistence">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
