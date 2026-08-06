@@ -11,7 +11,16 @@ from sqlalchemy import text
 
 from app import create_app
 from app.extensions import db
-from app.models import AssetMaster, AssetType, Currency, Holdings, Portfolio, Transactions, Users
+from app.models import (
+    AssetMaster,
+    AssetType,
+    Currency,
+    CurrencyRateHistory,
+    Holdings,
+    Portfolio,
+    Transactions,
+    Users,
+)
 
 
 class TransactionHistoryEndpointTest(unittest.TestCase):
@@ -107,6 +116,15 @@ class TransactionHistoryEndpointTest(unittest.TestCase):
                 position TEXT NOT NULL DEFAULT 'long'
             )
             """,
+            """
+            CREATE TABLE currency_rate_history (
+                id CHAR(32) PRIMARY KEY,
+                currency_id CHAR(32) NOT NULL,
+                rate_date DATE NOT NULL,
+                close_price NUMERIC NOT NULL,
+                UNIQUE (currency_id, rate_date)
+            )
+            """,
         ]
         for statement in statements:
             db.session.execute(text(statement))
@@ -115,6 +133,7 @@ class TransactionHistoryEndpointTest(unittest.TestCase):
     def _drop_sqlite_schema(self):
         for table_name in (
             "transactions",
+            "currency_rate_history",
             "holdings",
             "portfolio",
             "asset_master",
@@ -128,6 +147,7 @@ class TransactionHistoryEndpointTest(unittest.TestCase):
     def _seed_data(self):
         now = datetime.datetime(2026, 5, 28, tzinfo=datetime.timezone.utc)
         currency = Currency(id=uuid.uuid4(), currency="USD", symbol="$")
+        jpy = Currency(id=uuid.uuid4(), currency="JPY", symbol="¥")
         stock_type = AssetType(id=uuid.uuid4(), asset_type="stock")
         etf_type = AssetType(id=uuid.uuid4(), asset_type="etf")
         aapl = AssetMaster(
@@ -150,6 +170,13 @@ class TransactionHistoryEndpointTest(unittest.TestCase):
             name="Microsoft Corp.",
             asset_type=stock_type,
             currency=currency,
+        )
+        toyota = AssetMaster(
+            id=uuid.uuid4(),
+            ticker="7203.T",
+            name="Toyota Motor Corp.",
+            asset_type=stock_type,
+            currency=jpy,
         )
         aapl_holding = Holdings(
             id=uuid.uuid4(),
@@ -191,6 +218,7 @@ class TransactionHistoryEndpointTest(unittest.TestCase):
                     updated_at=now,
                 ),
                 currency,
+                jpy,
                 stock_type,
                 etf_type,
                 Portfolio(
@@ -208,6 +236,13 @@ class TransactionHistoryEndpointTest(unittest.TestCase):
                 aapl,
                 spy,
                 other_asset,
+                toyota,
+                CurrencyRateHistory(
+                    id=uuid.uuid4(),
+                    currency=jpy,
+                    rate_date=datetime.date(2026, 5, 26),
+                    close_price=decimal.Decimal("0.01"),
+                ),
                 aapl_holding,
                 spy_holding,
                 other_holding,
@@ -404,6 +439,70 @@ class TransactionHistoryEndpointTest(unittest.TestCase):
         self.assertEqual(body["items"][0]["realized_pl"], 150.0)
         self.assertEqual(body["items"][0]["realized_pl_percent"], 50.0)
         self.assertEqual(body["totals"]["realized_pl"], 150.0)
+
+    def test_get_transactions_converts_monetary_fields_to_usd(self):
+        self.app.config["DEFAULT_BASE_CURRENCY"] = "JPY"
+        now = datetime.datetime(2026, 5, 28, tzinfo=datetime.timezone.utc)
+        toyota = AssetMaster.query.filter_by(ticker="7203.T").one()
+        holding = Holdings(
+            id=uuid.uuid4(),
+            portfolio_id=self.portfolio_id,
+            asset=toyota,
+            quantity=decimal.Decimal("0"),
+            average_cost=decimal.Decimal("3000"),
+            updated_at=now,
+        )
+        db.session.add_all(
+            [
+                holding,
+                Transactions(
+                    id=uuid.uuid4(),
+                    holding=holding,
+                    trade_date=datetime.date(2026, 5, 27),
+                    quantity=decimal.Decimal("2"),
+                    price=decimal.Decimal("3000"),
+                    fees=decimal.Decimal("0"),
+                    created_at=now + datetime.timedelta(minutes=4),
+                    transaction_type="buy",
+                ),
+                Transactions(
+                    id=uuid.uuid4(),
+                    holding=holding,
+                    trade_date=datetime.date(2026, 5, 28),
+                    quantity=decimal.Decimal("2"),
+                    price=decimal.Decimal("3500"),
+                    fees=decimal.Decimal("0"),
+                    average_cost_before=decimal.Decimal("3000"),
+                    created_at=now + datetime.timedelta(minutes=5),
+                    transaction_type="sell",
+                ),
+            ]
+        )
+        db.session.commit()
+
+        response = self._get_history({"asset_type": "stock", "start_date": "2026-05-27"})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.get_json()
+        toyota_sell = next(
+            item
+            for item in body["items"]
+            if item["symbol"] == "7203.T" and item["transaction_type"] == "sell"
+        )
+        toyota_buy = next(
+            item
+            for item in body["items"]
+            if item["symbol"] == "7203.T" and item["transaction_type"] == "buy"
+        )
+        self.assertEqual(toyota_buy["executed_unit_price"], 30.0)
+        self.assertEqual(toyota_buy["executed_price"], 60.0)
+        self.assertEqual(toyota_sell["executed_unit_price"], 35.0)
+        self.assertEqual(toyota_sell["executed_price"], 70.0)
+        self.assertEqual(toyota_sell["realized_pl"], 10.0)
+        self.assertAlmostEqual(toyota_sell["realized_pl_percent"], 16.666666666666664)
+        self.assertEqual(body["totals"]["realized_pl"], 160.0)
+        self.assertAlmostEqual(body["totals"]["realized_pl_percent"], 44.44444444444444)
+        self.assertEqual(body["totals"]["currency"], "USD")
 
     def test_get_transactions_paginates_filtered_rows(self):
         response = self._get_history({"page": 2, "per_page": 2})
