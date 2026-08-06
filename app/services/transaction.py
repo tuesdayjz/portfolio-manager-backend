@@ -49,7 +49,8 @@ QUOTE_TYPE_TO_ASSET_TYPE = {
     "BOND": "bond",
     # Covers index and commodity futures alike (e.g. ES=F, GC=F, CL=F) - Yahoo
     # doesn't distinguish commodities from other futures via quoteType.
-    "FUTURE": "future",
+    # Value must match the `asset_type.asset_type` row, which is plural.
+    "FUTURE": "futures",
 }
 
 # Treasury yields/futures from https://finance.yahoo.com/markets/bonds/ - Yahoo's
