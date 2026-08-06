@@ -43,9 +43,9 @@ class PortfolioTransactionCollection(MethodView):
         絞り込める。検索や銘柄単位の細かい絞り込みはフロントエンド側で行う。
         日付はどちらも指定日を含む（inclusive）。
 
-        金額項目は USD 換算後の値で返す。各取引の実現損益は `realized_pl`、
-        絞り込み後の全件の合計は `totals` で返す。`buy` は売却時まで損益が
-        確定しないため、どちらも `sell` だけを対象にする。
+        各取引の実現損益は `realized_pl`、絞り込み後の全件の合計は `totals`
+        で返す。`buy` は売却時まで損益が確定しないため、どちらも `sell` だけを
+        対象にする。
         """
         require_auth()
         return get_portfolio_transactions(args)
@@ -64,7 +64,7 @@ class TransactionCollection(MethodView):
         リクエストでは `asset_id` ではなく `ticker` と `name` で asset を特定する。
         新しい asset を追加する場合は、Yahoo Finance API から取得した情報を
         `asset_master` に登録してから取引を作成する。
-        作成した取引の成功確認として、約定日時・銘柄・取引通貨建ての約定金額を返す。
+        作成した取引の成功確認として、約定日時・銘柄・最終約定金額を返す。
         """
         require_auth()
         return create_transaction(payload)

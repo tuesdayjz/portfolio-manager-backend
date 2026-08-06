@@ -534,12 +534,12 @@ components:
           format: date-time
           type: string
         executed_price:
-          description: 取引通貨建ての最終約定金額
-          example: 14902.5
+          description: 最終約定金額
+          example: 16094.7
           minimum: 0.0
           type: number
         executed_unit_price:
-          description: 取引通貨建ての約定単価
+          description: 約定単価
           example: 2980.5
           minimum: 0.0
           type: number
@@ -584,12 +584,12 @@ components:
           format: date
           type: string
         executed_price:
-          description: USD 換算後の約定金額（約定単価 × 数量 × FX rate）
+          description: 約定金額（約定単価 × 数量）
           example: 16094.7
           minimum: 0.0
           type: number
         executed_unit_price:
-          description: USD 換算後の約定単価（約定単価 × FX rate）
+          description: 約定単価
           example: 2980.5
           minimum: 0.0
           type: number
@@ -603,12 +603,12 @@ components:
           minimum: 0.0
           type: number
         realized_pl:
-          description: USD 換算後の実現損益。buy は未確定のため null。
+          description: 実現損益。buy は未確定のため null。
           example: 318750
           nullable: true
           type: number
         realized_pl_percent:
-          description: USD 換算後の売却前取得原価に対する実現損益率（％）。buy は null。
+          description: 売却前取得原価に対する実現損益率（％）。buy は null。
           example: 11.18
           nullable: true
           type: number
@@ -717,7 +717,7 @@ components:
           example: USD
           type: string
         realized_pl:
-          description: USD 換算後の実現損益の合計。損失なら負。
+          description: 実現損益の合計。損失なら負。
           example: 318750
           type: number
         realized_pl_percent:

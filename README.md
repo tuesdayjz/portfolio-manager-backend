@@ -351,13 +351,12 @@ return は対象期間の起点（例: `1w` なら 1 週間前）以降の買付
 `all`）, `start_date`, `end_date`。`asset_id` と `search` は受け取らない。
 履歴取得は `items` に `date`, `symbol`, `name`, `asset_type`, `quantity`,
 `transaction_type`, `executed_price`, `executed_unit_price`, `realized_pl` を返す。
-金額項目は USD 換算後の値で、`realized_pl` は sell のみ計算し、buy は `null`。
-`totals` はページング前の
+`realized_pl` は sell のみ計算し、buy は `null`。`totals` はページング前の
 フィルタ適用後全件を対象に、`realized_pl`, `realized_pl_percent`, `currency`
 を返す。単件作成と一括作成の各 item は `ticker`, `name`, `position`,
 `order_type`, `transaction_type`, `quantity` を受け取り、成功時は作成された
 取引の確認として `date`, `symbol`, `name`, `executed_price`,
-`executed_unit_price`, `asset_type` の取引通貨建て約定サマリーを返す。新しい asset を
+`executed_unit_price`, `asset_type` の約定サマリーを返す。新しい asset を
 追加する場合は、Yahoo Finance API から取得した情報を `asset_master` に登録してから
 取引を作成する。取引登録時は常に `CASH-USD` holding を更新する。USD 以外の銘柄は
 約定金額を USD 換算し、`buy` は差し引き、`sell` は加える。
@@ -403,7 +402,7 @@ Supabase のテーブル定義と将来の実装方針は
 
 `GET /portfolios/performance` returns performance charts in USD. Accepts `start_date`, `end_date`, `range`, and `interval`. `range` accepts `1d` / `1w` / `1m` / `3m` / `YTD` / `1y` / `all` (default `all`), and `interval` accepts `1d` / `1wk` / `1mo` (default `1d`). If explicit dates are provided, they take precedence and response `range` becomes `null`. Daily valuation is constructed from close prices in `asset_data_history`, and daily holding quantities are reconstructed by tracing transactions back from current holdings. Cash holdings are treated as constant throughout the period, and past FX rates are converted using current rates since historical FX rates are not stored. Returns `return_1d`, `return_1w`, `return_1m`, `return_3m`, `return_YTD`, `return_1y`, and `return_total`, each formatted as `{ amount, percent }`. `today` is calculated as the difference between today's close price and previous day's close price, and return for each period is calculated as the difference between today's close price and the starting close price of the period (e.g. 1 week ago for `1w`). Valuation series are constructed from inception (first transaction date) regardless of `range`, so narrowing display range does not change `return_total`.
 
-`GET /portfolios/transactions` filters transaction history by `transaction_type`, `asset_type` (default `all`), `start_date`, and `end_date`. Returns `date`, `symbol`, `name`, `asset_type`, `quantity`, `transaction_type`, `executed_price`, `executed_unit_price`, and `realized_pl` in `items`. Monetary fields are USD-denominated in the response. `realized_pl` is calculated for `sell` only (`null` for `buy`). `totals` returns `realized_pl`, `realized_pl_percent`, and `currency` for all records matching filters prior to pagination.
+`GET /portfolios/transactions` filters transaction history by `transaction_type`, `asset_type` (default `all`), `start_date`, and `end_date`. Returns `date`, `symbol`, `name`, `asset_type`, `quantity`, `transaction_type`, `executed_price`, `executed_unit_price`, and `realized_pl` in `items`. `realized_pl` is calculated for `sell` only (`null` for `buy`). `totals` returns `realized_pl`, `realized_pl_percent`, and `currency` for all records matching filters prior to pagination.
 
 `POST /transactions` and `POST /transactions/batch` register single or multiple buy/sell transactions. Request items accept `ticker`, `name`, `transaction_type` (`buy`/`sell`), `trade_date`, `quantity`, and `executed_price` (or `price`). When adding a new asset, ticker information fetched from Yahoo Finance API is automatically registered into `asset_master` before creating transactions. Executing a `buy` transaction validates available cash balance, updates average cost and quantity for the holding, and automatically deducts the USD-converted purchase cost from `CASH-USD`. Executing a `sell` transaction validates that current holding quantity is sufficient, updates quantity, calculates realized P&L, and automatically adds the USD-converted proceeds to `CASH-USD`.
 

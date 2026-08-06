@@ -13,15 +13,7 @@ from werkzeug.exceptions import HTTPException
 
 from app.enums import TransactionType
 from app.extensions import db
-from app.models import (
-    AssetMaster,
-    AssetType,
-    Currency,
-    CurrencyRateHistory,
-    Holdings,
-    Portfolio,
-    Transactions,
-)
+from app.models import AssetMaster, AssetType, Currency, Holdings, Portfolio, Transactions
 from app.services.asset_history import schedule_asset_history_backfill
 from app.services.market_data import YahooFinanceMarketData
 
@@ -39,7 +31,6 @@ LONG_POSITION_OPEN_MESSAGE = (
 INSUFFICIENT_FUNDS_MESSAGE = "Cannot buy more than available cash balance"
 INSUFFICIENT_CASH_FOR_WITHDRAWAL_MESSAGE = "Cannot withdraw more than current cash balance"
 FUTURE_TRANSACTION_CONFLICT_MESSAGE = "Conflict with future transaction"
-TRANSACTION_HISTORY_RESPONSE_CURRENCY = "USD"
 PRICE_UNAVAILABLE_MESSAGE = "Unable to fetch a live price for this ticker."
 FX_UNAVAILABLE_MESSAGE = "Unable to fetch an FX rate for this ticker currency."
 UNSUPPORTED_ASSET_MESSAGE = "Unable to register this ticker."
@@ -104,7 +95,7 @@ def get_portfolio_transactions(args):
             "realized_pl_percent": float(
                 _percent_of(total_realized_pl, total_cost_basis)
             ),
-            "currency": TRANSACTION_HISTORY_RESPONSE_CURRENCY,
+            "currency": current_app.config["DEFAULT_BASE_CURRENCY"],
         },
         "pagination": {
             "page": page,
@@ -308,12 +299,12 @@ def _transaction_history_rows(portfolio_id, args):
 def _transaction_history_item(transaction, holding, asset, asset_type):
     quantity = _decimal_or_zero(transaction.quantity)
     unit_price = _decimal_or_zero(transaction.price)
-    fx_rate = _transaction_history_fx_rate(asset, transaction.trade_date)
-    realized_pl = _realized_pl(transaction, holding, fx_rate)
-    cost_basis = _transaction_cost_basis(transaction, holding, fx_rate)
+    realized_pl = _realized_pl(transaction, holding)
+    cost_basis = _transaction_cost_basis(transaction, holding)
     realized_pl_percent = (
         _percent_of(realized_pl, cost_basis) if realized_pl is not None else None
     )
+
     return {
         "transaction_id": str(transaction.id),
         "date": transaction.trade_date,
@@ -323,8 +314,8 @@ def _transaction_history_item(transaction, holding, asset, asset_type):
         "position": getattr(transaction, "position", None) or "long",
         "quantity": float(quantity),
         "transaction_type": transaction.transaction_type,
-        "executed_price": float(unit_price * quantity * fx_rate),
-        "executed_unit_price": float(unit_price * fx_rate),
+        "executed_price": float(unit_price * quantity),
+        "executed_unit_price": float(unit_price),
         "realized_pl": float(realized_pl) if realized_pl is not None else None,
         "realized_pl_percent": (
             float(realized_pl_percent) if realized_pl_percent is not None else None
@@ -332,48 +323,21 @@ def _transaction_history_item(transaction, holding, asset, asset_type):
     }
 
 
-def _transaction_history_fx_rate(asset, trade_date):
-    currency = _asset_currency(asset).upper()
-    if currency == TRANSACTION_HISTORY_RESPONSE_CURRENCY:
-        return decimal.Decimal("1")
-
-    rate = db.session.execute(
-        select(CurrencyRateHistory.close_price)
-        .where(CurrencyRateHistory.currency_id == asset.currency_id)
-        .where(CurrencyRateHistory.rate_date <= trade_date)
-        .order_by(CurrencyRateHistory.rate_date.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    if rate is None:
-        rate = db.session.execute(
-            select(CurrencyRateHistory.close_price)
-            .where(CurrencyRateHistory.currency_id == asset.currency_id)
-            .order_by(CurrencyRateHistory.rate_date.asc())
-            .limit(1)
-        ).scalar_one_or_none()
-
-    fx_rate = _decimal_or_none(rate)
-    if fx_rate is None:
-        abort(502, message=FX_UNAVAILABLE_MESSAGE)
-    return fx_rate
-
-
 def _transaction_history_totals(rows):
     realized_pl = decimal.Decimal("0")
     cost_basis = decimal.Decimal("0")
 
-    for transaction, holding, asset, _asset_type in rows:
-        fx_rate = _transaction_history_fx_rate(asset, transaction.trade_date)
-        line_realized_pl = _realized_pl(transaction, holding, fx_rate)
+    for transaction, holding, _asset, _asset_type in rows:
+        line_realized_pl = _realized_pl(transaction, holding)
         if line_realized_pl is None:
             continue
         realized_pl += line_realized_pl
-        cost_basis += _transaction_cost_basis(transaction, holding, fx_rate)
+        cost_basis += _transaction_cost_basis(transaction, holding)
 
     return realized_pl, cost_basis
 
 
-def _realized_pl(transaction, holding, fx_rate=decimal.Decimal("1")):
+def _realized_pl(transaction, holding):
     # ロングの開始(buy)・ショートの開始(sell)では損益が確定しないため null にする。
     # 損益が確定するのは、ロングを閉じる sell とショートを閉じる(covering) buy だけ。
     position = getattr(transaction, "position", None) or "long"
@@ -392,8 +356,8 @@ def _realized_pl(transaction, holding, fx_rate=decimal.Decimal("1")):
     unit_price = _decimal_or_zero(transaction.price)
     average_cost = _transaction_average_cost_before(transaction, holding)
     if closes_short:
-        return (average_cost - unit_price) * quantity * fx_rate
-    return (unit_price - average_cost) * quantity * fx_rate
+        return (average_cost - unit_price) * quantity
+    return (unit_price - average_cost) * quantity
 
 
 def _transaction_average_cost_before(transaction, holding):
@@ -403,10 +367,10 @@ def _transaction_average_cost_before(transaction, holding):
     return _decimal_or_zero(holding.average_cost)
 
 
-def _transaction_cost_basis(transaction, holding, fx_rate=decimal.Decimal("1")):
+def _transaction_cost_basis(transaction, holding):
     quantity = _decimal_or_zero(transaction.quantity)
     average_cost = _transaction_average_cost_before(transaction, holding)
-    return average_cost * quantity * fx_rate
+    return average_cost * quantity
 
 
 def _create_transaction_line(
@@ -441,14 +405,14 @@ def _create_transaction_line(
     position = item["position"]
     cash_holding = _get_or_create_usd_cash_holding(portfolio.id, holdings_cache)
     cash_balance = _decimal_or_zero(cash_holding.average_cost)
-    fx_rate = _fx_to_usd_for_trade(
-        market_data, _asset_currency(asset), trade_date, today
-    )
 
     now = datetime.datetime.now(datetime.timezone.utc)
     if apply_incremental:
         transaction_average_cost_before = average_cost_before
         transaction_cash_balance_before = cash_balance
+        fx_rate = _fx_to_usd_for_trade(
+            market_data, _asset_currency(asset), trade_date, today
+        )
         trade_amount_usd = quantity * price * fx_rate
 
         if transaction_type is TransactionType.SELL:
@@ -563,7 +527,6 @@ def _validate_historical_future_margins(
     asset_quantities = {}
     new_cash_outflow = decimal.Decimal("0")
     new_asset_reductions = {}
-    new_short_reductions = {}
 
     for transaction, holding, asset in rows:
         if _is_cash_timeline_transaction(transaction, asset):
@@ -581,40 +544,22 @@ def _validate_historical_future_margins(
 
         if is_new_transaction:
             available_cash = cash_balance - new_cash_outflow
-            available_asset_quantity = (
-                asset_quantity
-                - new_asset_reductions.get(asset_id, decimal.Decimal("0"))
-                + new_short_reductions.get(asset_id, decimal.Decimal("0"))
+            available_asset_quantity = asset_quantity - new_asset_reductions.get(
+                asset_id, decimal.Decimal("0")
             )
-            position = getattr(transaction, "position", None) or "long"
             if transaction.transaction_type == TransactionType.SELL.value:
-                if position == "short":
-                    if available_asset_quantity > 0:
-                        abort(400, message=LONG_POSITION_OPEN_MESSAGE)
-                else:
-                    if available_asset_quantity < 0:
-                        abort(400, message=SHORT_POSITION_OPEN_MESSAGE)
-                    if quantity > available_asset_quantity:
-                        abort(400, message=OVERSELL_MESSAGE)
-                    new_asset_reductions[asset_id] = (
-                        new_asset_reductions.get(asset_id, decimal.Decimal("0"))
-                        + quantity
-                    )
+                if quantity > available_asset_quantity:
+                    abort(400, message=OVERSELL_MESSAGE)
+                new_asset_reductions[asset_id] = (
+                    new_asset_reductions.get(asset_id, decimal.Decimal("0")) + quantity
+                )
                 new_cash_outflow -= trade_amount_usd
             else:
-                if position == "short":
-                    if available_asset_quantity > 0:
-                        abort(400, message=LONG_POSITION_OPEN_MESSAGE)
-                    if quantity > -available_asset_quantity:
-                        abort(400, message=OVERCOVER_MESSAGE)
-                    new_short_reductions[asset_id] = (
-                        new_short_reductions.get(asset_id, decimal.Decimal("0"))
-                        + quantity
-                    )
-                elif available_asset_quantity < 0:
-                    abort(400, message=SHORT_POSITION_OPEN_MESSAGE)
                 if trade_amount_usd > available_cash:
                     abort(400, message=INSUFFICIENT_FUNDS_MESSAGE)
+                new_asset_reductions[asset_id] = (
+                    new_asset_reductions.get(asset_id, decimal.Decimal("0")) - quantity
+                )
                 new_cash_outflow += trade_amount_usd
             continue
 
@@ -628,9 +573,6 @@ def _validate_historical_future_margins(
         asset_reduction = new_asset_reductions.get(asset_id, decimal.Decimal("0"))
         if asset_reduction > 0 and asset_quantity < asset_reduction:
             abort(400, message=FUTURE_TRANSACTION_CONFLICT_MESSAGE)
-        short_reduction = new_short_reductions.get(asset_id, decimal.Decimal("0"))
-        if short_reduction > 0 and -asset_quantity < short_reduction:
-            abort(400, message=FUTURE_TRANSACTION_CONFLICT_MESSAGE)
 
         if transaction.transaction_type == TransactionType.SELL.value:
             asset_quantity -= quantity
@@ -642,9 +584,6 @@ def _validate_historical_future_margins(
 
         asset_reduction = new_asset_reductions.get(asset_id, decimal.Decimal("0"))
         if asset_reduction > 0 and asset_quantity < asset_reduction:
-            abort(400, message=FUTURE_TRANSACTION_CONFLICT_MESSAGE)
-        short_reduction = new_short_reductions.get(asset_id, decimal.Decimal("0"))
-        if short_reduction > 0 and -asset_quantity < short_reduction:
             abort(400, message=FUTURE_TRANSACTION_CONFLICT_MESSAGE)
 
 
@@ -872,7 +811,6 @@ def _get_or_create_asset(ticker, name, market_data):
         select(AssetMaster).where(AssetMaster.ticker == ticker)
     ).scalar_one_or_none()
     if asset:
-        _sync_existing_asset_currency(asset, market_data)
         return asset
 
     meta = market_data.asset_meta(ticker)
@@ -908,30 +846,6 @@ def _get_or_create_asset(ticker, name, market_data):
     db.session.add(asset)
     db.session.flush()
     return asset
-
-
-def _sync_existing_asset_currency(asset, market_data):
-    if not hasattr(market_data, "asset_meta"):
-        return
-
-    meta = market_data.asset_meta(asset.ticker)
-    if not meta or not meta.get("currency"):
-        return
-
-    existing_currency = _asset_currency(asset).upper()
-    meta_currency = meta["currency"].upper()
-    if existing_currency == meta_currency:
-        return
-
-    currency = db.session.execute(
-        select(Currency).where(Currency.currency == meta_currency)
-    ).scalar_one_or_none()
-    if not currency:
-        abort(400, message=UNSUPPORTED_ASSET_MESSAGE)
-
-    asset.currency = currency
-    asset.currency_id = currency.id
-    db.session.flush()
 
 
 def _portfolio_for_current_user():
