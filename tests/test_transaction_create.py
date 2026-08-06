@@ -453,12 +453,40 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 201)
+        body = response.get_json()
+        self.assertEqual(body["executed_unit_price"], 3000.0)
+        self.assertEqual(body["executed_price"], 6000.0)
         holding = self._holding_for_ticker("7203.T")
         self.assertEqual(float(holding.quantity), 2.0)
         self.assertEqual(float(holding.average_cost), 3000.0)
         cash_holding = self._holding_for_ticker("CASH-USD")
         self.assertEqual(float(cash_holding.average_cost), 9940.0)
         self.assertEqual(AssetMaster.query.filter_by(ticker="CASH-JPY").count(), 0)
+
+    def test_create_transaction_buy_existing_jpy_asset_syncs_currency_before_response(self):
+        usd = Currency.query.filter_by(currency="USD").one()
+        stock_type = AssetType.query.filter_by(asset_type="stock").one()
+        db.session.add(
+            AssetMaster(
+                id=uuid.uuid4(),
+                ticker="7203.T",
+                name="Toyota Motor Corp.",
+                asset_type=stock_type,
+                currency=usd,
+            )
+        )
+        db.session.commit()
+
+        response = self._post_transaction(
+            self._buy_payload("7203.T", "Toyota Motor Corp.", 2)
+        )
+
+        self.assertEqual(response.status_code, 201)
+        body = response.get_json()
+        self.assertEqual(body["executed_unit_price"], 3000.0)
+        self.assertEqual(body["executed_price"], 6000.0)
+        asset = AssetMaster.query.filter_by(ticker="7203.T").one()
+        self.assertEqual(asset.currency.currency, "JPY")
 
     def test_create_transaction_buy_existing_holding_recomputes_average_cost(self):
         first = self._post_transaction(self._buy_payload("AAPL", "Apple Inc.", 10))
@@ -1190,6 +1218,9 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         response = self._post_transaction(payload)
 
         self.assertEqual(response.status_code, 201)
+        body = response.get_json()
+        self.assertEqual(body["executed_unit_price"], 3000.0)
+        self.assertEqual(body["executed_price"], 6000.0)
         self.assertEqual(self._cash_balance(), 9880.0)
 
     def test_create_transaction_backdated_missing_fx_rolls_back(self):

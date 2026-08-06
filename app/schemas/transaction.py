@@ -112,11 +112,11 @@ class TransactionSchema(Schema):
     )
     executed_price = fields.Float(
         required=True, validate=NON_NEGATIVE,
-        metadata={"description": "最終約定金額", "example": 16094.70},
+        metadata={"description": "取引通貨建ての最終約定金額", "example": 14902.5},
     )
     executed_unit_price = fields.Float(
         required=True, validate=NON_NEGATIVE,
-        metadata={"description": "約定単価", "example": 2980.5},
+        metadata={"description": "取引通貨建ての約定単価", "example": 2980.5},
     )
 
 
@@ -160,17 +160,23 @@ class TransactionHistoryItemSchema(Schema):
     )
     executed_price = fields.Float(
         required=True, validate=NON_NEGATIVE,
-        metadata={"description": "約定金額（約定単価 × 数量）", "example": 16094.70},
+        metadata={
+            "description": "USD 換算後の約定金額（約定単価 × 数量 × FX rate）",
+            "example": 16094.70,
+        },
     )
     executed_unit_price = fields.Float(
         required=True, validate=NON_NEGATIVE,
-        metadata={"description": "約定単価", "example": 2980.5},
+        metadata={
+            "description": "USD 換算後の約定単価（約定単価 × FX rate）",
+            "example": 2980.5,
+        },
     )
     realized_pl = fields.Float(
         required=True,
         allow_none=True,
         metadata={
-            "description": "実現損益。buy は未確定のため null。",
+            "description": "USD 換算後の実現損益。buy は未確定のため null。",
             "example": 318750,
         },
     )
@@ -178,7 +184,7 @@ class TransactionHistoryItemSchema(Schema):
         required=True,
         allow_none=True,
         metadata={
-            "description": "売却前取得原価に対する実現損益率（％）。buy は null。",
+            "description": "USD 換算後の売却前取得原価に対する実現損益率（％）。buy は null。",
             "example": 11.18,
         },
     )
@@ -193,7 +199,7 @@ class TransactionTotalsSchema(Schema):
 
     realized_pl = fields.Float(
         required=True,
-        metadata={"description": "実現損益の合計。損失なら負。", "example": 318750},
+        metadata={"description": "USD 換算後の実現損益の合計。損失なら負。", "example": 318750},
     )
     realized_pl_percent = fields.Float(
         required=True,
