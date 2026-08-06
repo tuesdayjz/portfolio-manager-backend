@@ -493,6 +493,18 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         self.assertEqual(float(sell.average_cost_before), 150.0)
         self.assertEqual(float(sell.cash_balance_before), 8500.0)
 
+    def test_create_transaction_sell_long_with_existing_long_succeeds(self):
+        self.assertEqual(
+            self._post_transaction(self._buy_payload("AAPL", "Apple Inc.", 5)).status_code,
+            201,
+        )
+
+        response = self._post_transaction(self._sell_payload("AAPL", "Apple Inc.", 2))
+
+        self.assertEqual(response.status_code, 201)
+        holding = self._holding_for_ticker("AAPL")
+        self.assertEqual(float(holding.quantity), 3.0)
+
     def test_create_transaction_sell_more_than_holding_returns_400(self):
         self._post_transaction(self._buy_payload("AAPL", "Apple Inc.", 5))
 
@@ -517,6 +529,21 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         short = Transactions.query.filter_by(transaction_type="sell").one()
         self.assertEqual(short.position, "short")
         self.assertEqual(float(short.average_cost_before), 0.0)
+
+    def test_create_transaction_service_accepts_string_short_sell(self):
+        from app.services.transaction import create_transaction
+
+        self._auth()
+        payload = self._short_payload("AAPL", "Apple Inc.", 5)
+        payload["transaction_type"] = "sell"
+
+        create_transaction(payload, market_data=FakeMarketData())
+
+        holding = self._holding_for_ticker("AAPL")
+        self.assertEqual(float(holding.quantity), -5.0)
+        self.assertEqual(float(holding.average_cost), 150.0)
+        transaction = Transactions.query.filter_by(transaction_type="sell").one()
+        self.assertEqual(transaction.position, "short")
 
     def test_create_transaction_short_sell_adds_to_existing_short_recomputes_average_cost(self):
         self._post_transaction(self._short_payload("AAPL", "Apple Inc.", 10))
@@ -577,6 +604,20 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         holding = self._holding_for_ticker("AAPL")
         self.assertEqual(float(holding.quantity), 5.0)
 
+    def test_create_transaction_short_sell_with_existing_long_uses_neutral_message(self):
+        self.assertEqual(
+            self._post_transaction(self._buy_payload("AAPL", "Apple Inc.", 5)).status_code,
+            201,
+        )
+
+        response = self._post_transaction(self._short_payload("AAPL", "Apple Inc.", 1))
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.get_json()["message"],
+            "Open long position exists for this asset; sell to close it first.",
+        )
+
     def test_create_transaction_buy_long_rejected_while_short_position_open(self):
         self._post_transaction(self._short_payload("AAPL", "Apple Inc.", 5))
 
@@ -594,6 +635,32 @@ class TransactionCreateEndpointTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         holding = self._holding_for_ticker("AAPL")
         self.assertEqual(float(holding.quantity), -5.0)
+
+    def test_create_transaction_sell_short_with_existing_short_succeeds(self):
+        self.assertEqual(
+            self._post_transaction(self._short_payload("AAPL", "Apple Inc.", 5)).status_code,
+            201,
+        )
+
+        response = self._post_transaction(self._short_payload("AAPL", "Apple Inc.", 2))
+
+        self.assertEqual(response.status_code, 201)
+        holding = self._holding_for_ticker("AAPL")
+        self.assertEqual(float(holding.quantity), -7.0)
+
+    def test_create_transaction_sell_long_with_existing_short_uses_neutral_message(self):
+        self.assertEqual(
+            self._post_transaction(self._short_payload("AAPL", "Apple Inc.", 5)).status_code,
+            201,
+        )
+
+        response = self._post_transaction(self._sell_payload("AAPL", "Apple Inc.", 1))
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.get_json()["message"],
+            "Open short position exists for this asset; buy to cover it first.",
+        )
 
     def test_create_transaction_buy_without_enough_cash_returns_400(self):
         FakeMarketData.prices["AAPL"] = decimal.Decimal("20000")

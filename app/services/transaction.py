@@ -21,12 +21,10 @@ PORTFOLIO_NOT_FOUND_MESSAGE = "The specified portfolio does not exist"
 OVERSELL_MESSAGE = "Cannot sell more than current holding"
 OVERCOVER_MESSAGE = "Cannot cover more than current short position"
 SHORT_POSITION_OPEN_MESSAGE = (
-    "Cannot trade long while an open short position exists for this asset; "
-    "buy to cover it first."
+    "Open short position exists for this asset; buy to cover it first."
 )
 LONG_POSITION_OPEN_MESSAGE = (
-    "Cannot trade short while an open long position exists for this asset; "
-    "sell to close it first."
+    "Open long position exists for this asset; sell to close it first."
 )
 INSUFFICIENT_FUNDS_MESSAGE = "Cannot buy more than available cash balance"
 INSUFFICIENT_CASH_FOR_WITHDRAWAL_MESSAGE = "Cannot withdraw more than current cash balance"
@@ -233,8 +231,9 @@ def create_cash_transaction(payload, market_data=None):
 def _create_cash_transaction_line(portfolio, transaction_type, amount):
     cash_holding = _get_or_create_usd_cash_holding(portfolio.id, {})
     cash_balance = _decimal_or_zero(cash_holding.average_cost)
+    transaction_type_value = _transaction_type_value(transaction_type)
 
-    if transaction_type is TransactionType.WITHDRAWAL:
+    if transaction_type_value == TransactionType.WITHDRAWAL.value:
         if amount > cash_balance:
             abort(400, message=INSUFFICIENT_CASH_FOR_WITHDRAWAL_MESSAGE)
         cash_holding.average_cost = cash_balance - amount
@@ -253,14 +252,14 @@ def _create_cash_transaction_line(portfolio, transaction_type, amount):
             price=decimal.Decimal("1"),
             average_cost_before=None,
             cash_balance_before=cash_balance,
-            transaction_type=transaction_type.value,
+            transaction_type=transaction_type_value,
             position="long",
         )
     )
 
     return {
         "date": now,
-        "transaction_type": transaction_type.value,
+        "transaction_type": transaction_type_value,
         "amount": float(amount),
         "cash_balance": float(cash_holding.average_cost),
     }
@@ -341,12 +340,13 @@ def _realized_pl(transaction, holding):
     # ロングの開始(buy)・ショートの開始(sell)では損益が確定しないため null にする。
     # 損益が確定するのは、ロングを閉じる sell とショートを閉じる(covering) buy だけ。
     position = getattr(transaction, "position", None) or "long"
+    transaction_type = _transaction_type_value(transaction.transaction_type)
     closes_long = (
-        transaction.transaction_type == TransactionType.SELL.value
+        transaction_type == TransactionType.SELL.value
         and position == "long"
     )
     closes_short = (
-        transaction.transaction_type == TransactionType.BUY.value
+        transaction_type == TransactionType.BUY.value
         and position == "short"
     )
     if not closes_long and not closes_short:
@@ -402,7 +402,10 @@ def _create_transaction_line(
     existing_average_cost = _decimal_or_zero(average_cost_before)
     quantity = decimal.Decimal(str(item["quantity"]))
     transaction_type = item["transaction_type"]
+    transaction_type_value = _transaction_type_value(transaction_type)
+    is_sell = transaction_type_value == TransactionType.SELL.value
     position = item["position"]
+    is_short_position = position == "short"
     cash_holding = _get_or_create_usd_cash_holding(portfolio.id, holdings_cache)
     cash_balance = _decimal_or_zero(cash_holding.average_cost)
 
@@ -415,8 +418,8 @@ def _create_transaction_line(
         )
         trade_amount_usd = quantity * price * fx_rate
 
-        if transaction_type is TransactionType.SELL:
-            if position == "short":
+        if is_sell:
+            if is_short_position:
                 if existing_quantity > 0:
                     abort(400, message=LONG_POSITION_OPEN_MESSAGE)
                 short_quantity_before = -existing_quantity
@@ -435,7 +438,7 @@ def _create_transaction_line(
             holding.quantity = existing_quantity - quantity
             cash_holding.average_cost = cash_balance + trade_amount_usd
         else:
-            if position == "short":
+            if is_short_position:
                 if existing_quantity > 0:
                     abort(400, message=LONG_POSITION_OPEN_MESSAGE)
                 if quantity > -existing_quantity:
@@ -471,7 +474,7 @@ def _create_transaction_line(
             cash_balance_before=(
                 transaction_cash_balance_before if apply_incremental else None
             ),
-            transaction_type=transaction_type.value,
+            transaction_type=transaction_type_value,
             position=position,
         )
     )
@@ -541,31 +544,45 @@ def _validate_historical_future_margins(
         trade_amount_usd = quantity * price * fx_rate
         is_new_transaction = transaction.id in new_transaction_ids
         asset_quantity = asset_quantities.setdefault(asset_id, decimal.Decimal("0"))
+        transaction_type = _transaction_type_value(transaction.transaction_type)
+        position = getattr(transaction, "position", None) or "long"
 
         if is_new_transaction:
             available_cash = cash_balance - new_cash_outflow
             available_asset_quantity = asset_quantity - new_asset_reductions.get(
                 asset_id, decimal.Decimal("0")
             )
-            if transaction.transaction_type == TransactionType.SELL.value:
-                if quantity > available_asset_quantity:
-                    abort(400, message=OVERSELL_MESSAGE)
-                new_asset_reductions[asset_id] = (
-                    new_asset_reductions.get(asset_id, decimal.Decimal("0")) + quantity
-                )
+            if transaction_type == TransactionType.SELL.value:
+                if position == "short":
+                    if available_asset_quantity > 0:
+                        abort(400, message=LONG_POSITION_OPEN_MESSAGE)
+                else:
+                    if quantity > available_asset_quantity:
+                        abort(400, message=OVERSELL_MESSAGE)
+                    new_asset_reductions[asset_id] = (
+                        new_asset_reductions.get(asset_id, decimal.Decimal("0"))
+                        + quantity
+                    )
                 new_cash_outflow -= trade_amount_usd
             else:
+                if position == "short":
+                    if available_asset_quantity > 0:
+                        abort(400, message=LONG_POSITION_OPEN_MESSAGE)
+                    if quantity > -available_asset_quantity:
+                        abort(400, message=OVERCOVER_MESSAGE)
+                else:
+                    new_asset_reductions[asset_id] = (
+                        new_asset_reductions.get(asset_id, decimal.Decimal("0"))
+                        - quantity
+                    )
                 if trade_amount_usd > available_cash:
                     abort(400, message=INSUFFICIENT_FUNDS_MESSAGE)
-                new_asset_reductions[asset_id] = (
-                    new_asset_reductions.get(asset_id, decimal.Decimal("0")) - quantity
-                )
                 new_cash_outflow += trade_amount_usd
             continue
 
         if new_cash_outflow > 0:
             cash_margin = cash_balance
-            if transaction.transaction_type == TransactionType.BUY.value:
+            if transaction_type == TransactionType.BUY.value:
                 cash_margin -= trade_amount_usd
             if cash_margin < new_cash_outflow:
                 abort(400, message=FUTURE_TRANSACTION_CONFLICT_MESSAGE)
@@ -574,7 +591,7 @@ def _validate_historical_future_margins(
         if asset_reduction > 0 and asset_quantity < asset_reduction:
             abort(400, message=FUTURE_TRANSACTION_CONFLICT_MESSAGE)
 
-        if transaction.transaction_type == TransactionType.SELL.value:
+        if transaction_type == TransactionType.SELL.value:
             asset_quantity -= quantity
             cash_balance += trade_amount_usd
         else:
@@ -618,8 +635,9 @@ def _replay_portfolio_transactions(portfolio_id, market_data, today, starting_ca
         )
         trade_amount_usd = quantity * price * fx_rate
         transaction.cash_balance_before = cash_balance
+        transaction_type = _transaction_type_value(transaction.transaction_type)
 
-        if transaction.transaction_type == TransactionType.SELL.value:
+        if transaction_type == TransactionType.SELL.value:
             transaction.average_cost_before = average_cost_before
             if position == "short":
                 if state["quantity"] > 0:
@@ -702,7 +720,8 @@ def _starting_cash_baseline(portfolio_id, market_data, today):
             market_data, _asset_currency(asset), transaction.trade_date, today
         )
         trade_amount_usd = quantity * price * fx_rate
-        if transaction.transaction_type == TransactionType.SELL.value:
+        transaction_type = _transaction_type_value(transaction.transaction_type)
+        if transaction_type == TransactionType.SELL.value:
             cash_balance -= trade_amount_usd
         else:
             cash_balance += trade_amount_usd
@@ -711,7 +730,7 @@ def _starting_cash_baseline(portfolio_id, market_data, today):
 
 
 def _is_cash_timeline_transaction(transaction, asset):
-    transaction_type = transaction.transaction_type
+    transaction_type = _transaction_type_value(transaction.transaction_type)
     if transaction_type in {"deposit", "withdrawal"}:
         return True
     return getattr(asset, "ticker", None) == "CASH-USD"
@@ -881,6 +900,12 @@ def _decimal_or_none(value):
     if result.is_nan() or result <= 0:
         return None
     return result
+
+
+def _transaction_type_value(transaction_type):
+    if isinstance(transaction_type, TransactionType):
+        return transaction_type.value
+    return transaction_type
 
 
 def _percent_of(amount, base):
