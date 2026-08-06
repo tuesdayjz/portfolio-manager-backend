@@ -311,8 +311,10 @@ All under `/api/v1`. Refer to [`API_DESIGN.md`](API_DESIGN.md) for design backgr
 
 `GET /portfolios/summary` はログイン user の portfolio から USD 建ての
 サマリーを返す。`cash_balance` は cash holding を USD に換算して集計し、
-`total_market_value` と `total_return_percent` は cash 以外の holding だけで
-計算する。市場価格と FX は Yahoo Finance から取得し、DB には保存しない。
+`total_market_value` に含める。`total_return_percent` は cash balance を含む
+資産総額から計算し、外部キャッシュフローは deposit/withdrawal で調整する。
+buy/sell は内部の資産移動なので外部キャッシュフローには含めない。
+市場価格と FX は Yahoo Finance から取得する。
 
 `GET /portfolios/holdings` は cash を除いた保有残高一覧を USD 建てで返す。
 `asset_type`（既定値 `all`）、`page`、`per_page` を受け取る。`asset_id` と
@@ -393,7 +395,7 @@ Supabase のテーブル定義と将来の実装方針は
 }
 ```
 
-`GET /portfolios/summary` returns a USD-denominated summary from the logged-in user's portfolio. `cash_balance` converts cash holdings into USD for aggregation, while `total_market_value` and `total_return_percent` are calculated using non-cash holdings only. Market prices and FX rates are fetched from Yahoo Finance.
+`GET /portfolios/summary` returns a USD-denominated summary from the logged-in user's portfolio. `cash_balance` converts cash holdings into USD and is included in `total_market_value`. `total_return_percent` adjusts the cash-inclusive asset value for external deposits and withdrawals; buys and sells are internal transfers and are not treated as external cash flows.
 
 `GET /portfolios/holdings` returns a list of non-cash holdings denominated in USD. Accepts `asset_type` (default `all`), `page`, and `per_page`. Does not accept `asset_id` or `search`; search is performed on the frontend. `items` returns current price, acquisition price, market value, daily gain/loss rate, and cumulative return rate. Current price and FX rates are retrieved from Yahoo Finance, and previous close price uses the latest `close_price` from `asset_data_history` where `price_date < today`. Holdings lacking required market data are excluded from the list and totals. `totals` aggregates across all matching holdings rather than paginated `items`.
 

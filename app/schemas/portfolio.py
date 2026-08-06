@@ -66,14 +66,23 @@ class PortfolioSummarySchema(Schema):
         required=True,
         validate=NON_NEGATIVE,
         metadata={
-            "description": "Performance と同じ評価額。現金を含む portfolio value。",
+            "description": "Performance と同じ評価額。現金を含む portfolio value。"
+            "ショートは負債として別枠（total_short_liability）に出るため含まない。",
             "example": 4220000,
+        },
+    )
+    total_short_liability = fields.Float(
+        required=True,
+        validate=NON_NEGATIVE,
+        metadata={
+            "description": "オープン中のショートポジションの評価額合計（負債、正の値で返す）。",
+            "example": 125000,
         },
     )
     total_return_percent = fields.Float(
         required=True,
         metadata={
-            "description": "Performance の total_return.percent と同じ総リターン率（％）。",
+            "description": "現金込み資産を deposit/withdrawal で調整した総リターン率（％）。",
             "example": 8.17,
         },
     )

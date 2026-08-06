@@ -215,6 +215,62 @@ def _latest_stored_rates(currency_ids):
     return {row.currency_id: decimal_or_none(row.close_price) for row in rows}
 
 
+def _short_liability_value(portfolio_id, market_data, as_of):
+    """Return the total USD value owed on open short positions today.
+
+    Reported as a positive magnitude - a short is a liability, not an asset,
+    so it's tracked separately from `total_market_value` rather than as a
+    negative contribution to it.
+    """
+
+    rows = db.session.execute(
+        select(
+            Holdings.asset_id,
+            Holdings.quantity,
+            AssetMaster.currency_id,
+            Currency.currency,
+        )
+        .join(AssetMaster, AssetMaster.id == Holdings.asset_id)
+        .outerjoin(Currency, Currency.id == AssetMaster.currency_id)
+        .where(Holdings.portfolio_id == portfolio_id)
+        .where(Holdings.quantity < 0)
+    ).all()
+    if not rows:
+        return decimal.Decimal("0")
+
+    live_rates = {
+        row.currency_id: decimal_or_none(
+            market_data.fx_to_usd((row.currency or SUMMARY_CURRENCY).upper())
+        )
+        for row in rows
+    }
+    stored_rates = _latest_stored_rates(live_rates)
+
+    total = decimal.Decimal("0")
+    for row in rows:
+        fx_rate = stored_rates.get(row.currency_id) or live_rates[row.currency_id]
+        if fx_rate is None:
+            continue
+        price = _latest_close_price(row.asset_id, as_of)
+        if price is None:
+            continue
+        total += -decimal_or_zero(row.quantity) * price * fx_rate
+    return total
+
+
+def _latest_close_price(asset_id, as_of):
+    """Return the most recent close price on or before `as_of`."""
+
+    price = db.session.execute(
+        select(AssetDataHistory.close_price)
+        .where(AssetDataHistory.asset_id == asset_id)
+        .where(AssetDataHistory.price_date <= as_of)
+        .order_by(AssetDataHistory.price_date.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return decimal_or_none(price)
+
+
 def _value_series(positions, cash_value, first_trade_date, end_date):
     """Build the USD value series up to `end_date`.
 
@@ -242,6 +298,9 @@ def _value_series_statement(positions, first_trade_date, end_date):
     日付ごとに保有数量・終値・FX を引き当てて合計する。数量は現在値から
     その日より後の取引を差し引いて復元し、終値と FX はその日以前で最も
     新しい行を使う（休場日は前営業日の値を横引きする）。
+
+    `quantity > 0` の位置しか合計しないため、ショート（負の数量）は自動的に
+    除外される。ショートは負債であり資産ではないので、これで正しい。
     """
 
     asset_ids = [position["asset_id"] for position in positions]

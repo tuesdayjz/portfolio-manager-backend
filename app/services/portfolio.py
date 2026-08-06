@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from werkzeug.exceptions import HTTPException
 
-from app.enums import AllocationGroupBy
+from app.enums import AllocationGroupBy, TransactionType
 from app.extensions import db
 from app.models import (
     AssetDataHistory,
@@ -24,6 +24,7 @@ from app.models import (
     Currency,
     Holdings,
     Portfolio,
+    Transactions,
     Users,
 )
 from app.services.common import (
@@ -38,8 +39,11 @@ from app.services.common import (
 from app.services.market_data import YahooFinanceMarketData
 from app.services.performance import (
     ALL_ASSET_TYPES,
+    _investment_flows,
+    _performance_change,
     _performance_positions,
-    _performance_returns,
+    _short_liability_value,
+    _short_liability_value,
     _value_series,
 )
 
@@ -134,21 +138,108 @@ def get_portfolio_summary(market_data=None):
         if fx_rate is not None:
             cash_balance += quantity * average_cost * fx_rate
 
-    # 推移グラフと違い summary の評価額は現金を含むので、系列に残高を足す。
+    # 投資資産の系列は performance と共有し、summary の総額には現金を加える。
+    # 基準日の現金は後段で売買・入出金を差し戻して復元する。
     positions, _cash_value, first_trade_date = _performance_positions(
         portfolio.id, market_data, ALL_ASSET_TYPES
     )
-    dates, values = _value_series(positions, cash_balance, first_trade_date, today)
-    total_market_value = values[-1]
-    total_return = _performance_returns(dates, values, today)["return_total"]
+    dates, investment_values = _value_series(
+        positions, decimal.Decimal("0"), first_trade_date, today
+    )
+    total_market_value = investment_values[-1] + cash_balance
+    total_return = _summary_total_return(
+        portfolio.id,
+        positions,
+        dates[0],
+        investment_values[0],
+        cash_balance,
+        total_market_value,
+        today,
+    )
+    total_short_liability = _short_liability_value(portfolio.id, market_data, today)
 
     return {
         "currency": SUMMARY_CURRENCY,
         "currency_symbol": _summary_currency_symbol(),
         "cash_balance": float(cash_balance),
         "total_market_value": float(total_market_value),
+        "total_short_liability": float(total_short_liability),
         "total_return_percent": total_return["percent"],
     }
+
+
+def _summary_total_return(
+    portfolio_id,
+    positions,
+    baseline_date,
+    baseline_investment_value,
+    current_cash_balance,
+    total_market_value,
+    as_of,
+):
+    """Return inception performance adjusted only for external capital flows.
+
+    buy/sell は投資資産と現金の間の移動なので、外部フローには数えない。ただし
+    現在の cash balance から基準日の残高を復元するためには売買金額も差し戻す。
+    deposit/withdrawal だけを入出金としてリターン計算の分母・分子に反映する。
+    """
+
+    trade_flows = _investment_flows(positions, as_of)
+    capital_flows = _capital_flows(portfolio_id, as_of)
+    baseline_cash_balance = current_cash_balance
+
+    for trade_date, transaction_type, amount in trade_flows:
+        if not baseline_date < trade_date <= as_of:
+            continue
+        if transaction_type == TransactionType.BUY.value:
+            baseline_cash_balance += amount
+        elif transaction_type == TransactionType.SELL.value:
+            baseline_cash_balance -= amount
+
+    deposits = decimal.Decimal("0")
+    withdrawals = decimal.Decimal("0")
+    for trade_date, transaction_type, amount in capital_flows:
+        if not baseline_date < trade_date <= as_of:
+            continue
+        if transaction_type == TransactionType.DEPOSIT.value:
+            baseline_cash_balance -= amount
+            deposits += amount
+        elif transaction_type == TransactionType.WITHDRAWAL.value:
+            baseline_cash_balance += amount
+            withdrawals += amount
+
+    baseline_value = baseline_investment_value + baseline_cash_balance
+    return _performance_change(
+        total_market_value, baseline_value, deposits, withdrawals
+    )
+
+
+def _capital_flows(portfolio_id, as_of):
+    """Return USD deposit/withdrawal amounts through ``as_of``."""
+
+    rows = db.session.execute(
+        select(
+            Transactions.trade_date,
+            Transactions.transaction_type,
+            (Transactions.quantity * Transactions.price).label("amount"),
+        )
+        .join(Holdings, Holdings.id == Transactions.holding_id)
+        .where(Holdings.portfolio_id == portfolio_id)
+        .where(Transactions.trade_date <= as_of)
+        .where(
+            Transactions.transaction_type.in_(
+                (
+                    TransactionType.DEPOSIT.value,
+                    TransactionType.WITHDRAWAL.value,
+                )
+            )
+        )
+        .order_by(Transactions.trade_date)
+    ).all()
+    return [
+        (trade_date, transaction_type, decimal_or_zero(amount))
+        for trade_date, transaction_type, amount in rows
+    ]
 
 
 def get_portfolio_holdings(args, market_data=None):
@@ -164,46 +255,114 @@ def get_portfolio_holdings(args, market_data=None):
     total_market_value = decimal.Decimal("0")
     total_unrealized_pl = decimal.Decimal("0")
     total_previous_value = decimal.Decimal("0")
+    today = datetime.date.today()
 
-    holdings = db.session.execute(
-        select(Holdings)
-        .join(Holdings.asset)
+    previous_close = (
+        select(AssetDataHistory.close_price)
+        .where(AssetDataHistory.asset_id == Holdings.asset_id)
+        .where(AssetDataHistory.price_date < today)
+        .order_by(AssetDataHistory.price_date.desc())
+        .limit(1)
+        .correlate(Holdings)
+        .scalar_subquery()
+    )
+
+    holding_rows = db.session.execute(
+        select(
+            Holdings,
+            AssetMaster,
+            AssetType.asset_type,
+            Currency.currency,
+            previous_close.label("previous_close"),
+        )
+        .join(AssetMaster, AssetMaster.id == Holdings.asset_id)
+        .outerjoin(AssetType, AssetType.id == AssetMaster.asset_type_id)
+        .outerjoin(Currency, Currency.id == AssetMaster.currency_id)
         .where(Holdings.portfolio_id == portfolio.id)
         .order_by(AssetMaster.ticker)
-    ).scalars()
-   
-    for holding in holdings:
+    ).all()
+
+    priced_holdings = []
+    for holding, asset, asset_type, currency, previous_close_value in holding_rows:
         quantity = decimal_or_zero(holding.quantity)
         average_cost = decimal_or_zero(holding.average_cost)
-        asset = holding.asset
-        asset_type = getattr(getattr(asset, "asset_type", None), "asset_type", None)
         asset_type_value = (asset_type or "").lower()
         if asset_type_value == "cash":
             continue
-        if quantity <= 0:
+        if quantity == 0:
             continue
         if asset_type_filter != "all" and asset_type_value != asset_type_filter:
             continue
-        currency = asset_currency(asset)
+        currency = (currency or SUMMARY_CURRENCY).upper()
+        previous_close_value = decimal_or_none(previous_close_value)
+        if previous_close_value is None:
+            continue
+        priced_holdings.append(
+            (
+                asset,
+                asset_type,
+                quantity,
+                average_cost,
+                currency,
+                previous_close_value,
+            )
+        )
+
+    # 銘柄価格と非 USD 通貨の FX を Yahoo Finance のバッチAPIでまとめて取得する。
+    # injected market data implementations that only expose latest_price remain
+    # supported for callers outside the production endpoint.
+    if hasattr(market_data, "latest_prices"):
+        tickers = [asset.ticker for asset, *_rest in priced_holdings]
+        fx_tickers = [
+            f"{currency}USD=X"
+            for (
+                _asset,
+                _asset_type,
+                _quantity,
+                _average_cost,
+                currency,
+                _close,
+            ) in priced_holdings
+            if currency != SUMMARY_CURRENCY
+        ]
+        market_data.latest_prices([*tickers, *fx_tickers])
+
+    for (
+        asset,
+        asset_type,
+        quantity,
+        average_cost,
+        currency,
+        previous_close_value,
+    ) in priced_holdings:
         fx_rate = decimal_or_none(market_data.fx_to_usd(currency))
         if fx_rate is None:
             continue
         current_price = decimal_or_none(
             market_data.latest_price(getattr(asset, "ticker", None))
         )
-        previous_close = _previous_close_price(holding.asset_id)
-        if current_price is None or previous_close is None:
+        if current_price is None:
             continue
         current_price_usd = current_price * fx_rate
-        previous_close_usd = previous_close * fx_rate
+        previous_close_usd = previous_close_value * fx_rate
         average_purchase_price = average_cost * fx_rate
         total_purchase_price = average_purchase_price * quantity
         holding_market_value = current_price_usd * quantity
         unrealized_pl = (current_price_usd - average_purchase_price) * quantity
 
-        total_market_value += holding_market_value
-        total_unrealized_pl += unrealized_pl
-        total_previous_value += average_purchase_price * quantity
+        # Shorts are a liability, not an asset: they're listed individually
+        # below but excluded from the aggregate totals.
+        if quantity > 0:
+            total_market_value += holding_market_value
+            total_unrealized_pl += unrealized_pl
+            total_previous_value += average_purchase_price * quantity
+
+        # A short position gains value when the price falls, so its return
+        # is the inverse of the raw price change used for a long position.
+        return_sign = -1 if quantity < 0 else 1
+        return_percent = return_sign * _return_percent(
+            current_price_usd, average_purchase_price
+        )
 
         items.append(
             {
@@ -215,12 +374,8 @@ def get_portfolio_holdings(args, market_data=None):
                 "total_purchase_price": float(total_purchase_price),
                 "current_price": float(current_price_usd),
                 "total_market_value": float(holding_market_value),
-                "today_return_percent": float(
-                    _return_percent(current_price_usd, average_purchase_price)
-                ),
-                "total_return_percent": float(
-                    _return_percent(current_price_usd, average_purchase_price)
-                ),
+                "today_return_percent": float(return_percent),
+                "total_return_percent": float(return_percent),
                 "currency": SUMMARY_CURRENCY,
             }
         )
@@ -283,6 +438,10 @@ def get_portfolio_allocation(args, market_data=None):
             # cash holding は quantity=1、average_cost に残高が入っている。
             value = quantity * decimal_or_zero(holding.average_cost) * fx_rate
         else:
+            # ショート（負の quantity）は負債であり資産ではないので、
+            # 配分グラフからは除く。
+            if quantity <= 0:
+                continue
             current_price = decimal_or_none(
                 market_data.latest_price(getattr(asset, "ticker", None))
             )
@@ -396,18 +555,6 @@ def _summary_currency_symbol():
         select(Currency).where(Currency.currency == SUMMARY_CURRENCY)
     ).scalar_one_or_none()
     return getattr(currency, "symbol", None) or DEFAULT_USD_SYMBOL
-
-
-def _previous_close_price(asset_id):
-    today = datetime.date.today()
-    row = db.session.execute(
-        select(AssetDataHistory)
-        .where(AssetDataHistory.asset_id == asset_id)
-        .where(AssetDataHistory.price_date < today)
-        .order_by(AssetDataHistory.price_date.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    return decimal_or_none(getattr(row, "close_price", None))
 
 
 def _return_percent(total_market_value, total_cost_basis):

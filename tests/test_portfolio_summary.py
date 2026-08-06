@@ -17,6 +17,7 @@ from app.models import (
     Currency,
     Holdings,
     Portfolio,
+    Transactions,
     Users,
 )
 
@@ -121,7 +122,8 @@ class PortfolioSummaryEndpointTest(unittest.TestCase):
                 average_cost_before NUMERIC,
                 cash_balance_before NUMERIC,
                 created_at DATETIME NOT NULL,
-                transaction_type TEXT NOT NULL
+                transaction_type TEXT NOT NULL,
+                position TEXT NOT NULL DEFAULT 'long'
             )
             """,
             """
@@ -247,6 +249,23 @@ class PortfolioSummaryEndpointTest(unittest.TestCase):
         )
         db.session.commit()
 
+    def _trade(
+        self, holding, *, trade_date, quantity, price, transaction_type
+    ):
+        transaction = Transactions(
+            id=uuid.uuid4(),
+            holding_id=holding.id,
+            trade_date=trade_date,
+            quantity=quantity,
+            price=price,
+            fees=0,
+            transaction_type=transaction_type,
+            created_at=datetime.datetime.now(datetime.timezone.utc),
+        )
+        db.session.add(transaction)
+        db.session.commit()
+        return transaction
+
     def test_summary_calculates_usd_cash_and_stock(self):
         portfolio = self._create_portfolio()
         cash = self._asset("CASH-USD", self.cash_type, self.usd)
@@ -269,10 +288,37 @@ class PortfolioSummaryEndpointTest(unittest.TestCase):
         self.assertEqual(data["currency"], "USD")
         self.assertEqual(data["currency_symbol"], "$")
         self.assertEqual(data["cash_balance"], 1250000)
+        # Unlike the performance graph, the summary's total_market_value
+        # includes cash (it's meant to read as total net worth).
         self.assertEqual(data["total_market_value"], 1251200)
         self.assertAlmostEqual(
             data["total_return_percent"], 200 / 1251000 * 100, places=6
         )
+
+    def test_summary_excludes_short_position_from_total_market_value(self):
+        portfolio = self._create_portfolio()
+        cash = self._asset("CASH-USD", self.cash_type, self.usd)
+        stock = self._asset("AAPL", self.stock_type, self.usd)
+        self._holding(portfolio, cash, quantity=1, average_cost=1000)
+        self._holding(portfolio, stock, quantity=-10, average_cost=80)
+        self._prices(
+            stock,
+            {
+                self.today - datetime.timedelta(days=1): 90,
+                self.today: 100,
+            },
+        )
+        FakeMarketData.fx_rates = {}
+
+        response = self._get_summary()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["cash_balance"], 1000)
+        # The short is a liability, not an asset - it must not move total
+        # assets (which otherwise includes cash, hence == cash_balance here).
+        self.assertEqual(data["total_market_value"], 1000)
+        self.assertEqual(data["total_short_liability"], 1000)
 
     def test_summary_converts_non_usd_stock_to_usd(self):
         portfolio = self._create_portfolio()
@@ -293,6 +339,67 @@ class PortfolioSummaryEndpointTest(unittest.TestCase):
         data = response.get_json()
         self.assertEqual(data["total_market_value"], 30)
         self.assertEqual(data["total_return_percent"], 50)
+
+    def test_summary_adjusts_return_for_deposits_and_withdrawals(self):
+        portfolio = self._create_portfolio()
+        cash = self._asset("CASH-USD", self.cash_type, self.usd)
+        stock = self._asset("AAPL", self.stock_type, self.usd)
+        cash_holding = self._holding(
+            portfolio, cash, quantity=1, average_cost=1300
+        )
+        stock_holding = self._holding(
+            portfolio, stock, quantity=11, average_cost=100
+        )
+        ten_days_ago = self.today - datetime.timedelta(days=10)
+        self._prices(stock, {ten_days_ago: 100, self.today: 110})
+        self._trade(
+            stock_holding,
+            trade_date=ten_days_ago,
+            quantity=10,
+            price=100,
+            transaction_type="buy",
+        )
+        self._trade(
+            stock_holding,
+            trade_date=self.today - datetime.timedelta(days=5),
+            quantity=2,
+            price=100,
+            transaction_type="buy",
+        )
+        self._trade(
+            stock_holding,
+            trade_date=self.today - datetime.timedelta(days=2),
+            quantity=1,
+            price=100,
+            transaction_type="sell",
+        )
+        self._trade(
+            cash_holding,
+            trade_date=self.today - datetime.timedelta(days=4),
+            quantity=500,
+            price=1,
+            transaction_type="deposit",
+        )
+        self._trade(
+            cash_holding,
+            trade_date=self.today - datetime.timedelta(days=1),
+            quantity=100,
+            price=1,
+            transaction_type="withdrawal",
+        )
+        FakeMarketData.fx_rates = {}
+
+        response = self._get_summary()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["total_market_value"], 2510)
+        # 基準日の総資産は cash 1000 + stock 1000 = 2000。
+        # buy/sell は内部移動なので外部フローには含めず、deposit/withdrawal のみで
+        # (現在資産 2510 + 出金 100) - (基準資産 2000 + 入金 500) = 110。
+        self.assertAlmostEqual(
+            data["total_return_percent"], 110 / 2500 * 100, places=6
+        )
 
     def test_summary_converts_multiple_cash_holdings_to_usd(self):
         portfolio = self._create_portfolio()
