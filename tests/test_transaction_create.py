@@ -37,6 +37,7 @@ class FakeMarketData:
         "BONDX": {"quote_type": "BOND", "currency": "USD"},
         "ZT=F": {"quote_type": "FUTURE", "currency": "USD"},
         "CL=F": {"quote_type": "FUTURE", "currency": "USD"},
+        "AAPL260807C00325000": {"quote_type": "OPTION", "currency": "USD"},
         "UNKNOWNX": None,
     }
     listed_from = {}
@@ -80,6 +81,8 @@ class TransactionCreateEndpointTest(unittest.TestCase):
             "BONDX": decimal.Decimal("98.75"),
             "ZT=F": decimal.Decimal("103.00"),
             "CL=F": decimal.Decimal("68.34"),
+            # Option premiums are quoted per share, like Yahoo quotes them.
+            "AAPL260807C00325000": decimal.Decimal("5.25"),
         }
         FakeMarketData.latest_closes = {
             "AAPL": decimal.Decimal("145"),
@@ -89,6 +92,7 @@ class TransactionCreateEndpointTest(unittest.TestCase):
             "BONDX": decimal.Decimal("98.5"),
             "ZT=F": decimal.Decimal("102.99"),
             "CL=F": decimal.Decimal("68.10"),
+            "AAPL260807C00325000": decimal.Decimal("5.10"),
         }
         FakeMarketData.fx_rates = {"JPY": decimal.Decimal("0.01"), "USD": decimal.Decimal("1")}
         FakeMarketData.historical_fx_rates = {}
@@ -444,6 +448,58 @@ class TransactionCreateEndpointTest(unittest.TestCase):
 
     def test_create_transaction_buy_future_without_asset_type_row_returns_400(self):
         response = self._post_transaction(self._buy_payload("CL=F", "Crude Oil Futures", 5))
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_create_transaction_buy_option_resolves_option_asset_type(self):
+        """An OCC contract symbol is `quote_type=OPTION` in Yahoo and resolves to
+        "option". Quantity is in shares (1 contract = 100), and the premium is
+        quoted per share, so 100 x 5.25 debits $525 of cash."""
+        option_type = AssetType(id=uuid.uuid4(), asset_type="option")
+        db.session.add(option_type)
+        db.session.commit()
+
+        response = self._post_transaction(
+            self._buy_payload("AAPL260807C00325000", "AAPL Aug 07 2026 325 Call", 100)
+        )
+
+        self.assertEqual(response.status_code, 201)
+        body = response.get_json()
+        self.assertEqual(body["asset_type"], "option")
+        self.assertEqual(body["executed_unit_price"], 5.25)
+        self.assertEqual(body["executed_price"], 525.0)
+
+        asset = AssetMaster.query.filter_by(ticker="AAPL260807C00325000").one()
+        self.assertEqual(asset.asset_type.asset_type, "option")
+
+        holding = self._holding_for_ticker("AAPL260807C00325000")
+        self.assertEqual(float(holding.quantity), 100.0)
+        self.assertEqual(float(holding.average_cost), 5.25)
+        self.assertEqual(self._cash_balance(), 9475.0)
+
+    def test_create_transaction_write_option_short_credits_premium(self):
+        """Writing (selling to open) a contract is the existing short path - it
+        credits the premium as cash and leaves a negative holding."""
+        option_type = AssetType(id=uuid.uuid4(), asset_type="option")
+        db.session.add(option_type)
+        db.session.commit()
+
+        payload = self._sell_payload(
+            "AAPL260807C00325000", "AAPL Aug 07 2026 325 Call", 100
+        )
+        payload["position"] = "short"
+        response = self._post_transaction(payload)
+
+        self.assertEqual(response.status_code, 201)
+
+        holding = self._holding_for_ticker("AAPL260807C00325000")
+        self.assertEqual(float(holding.quantity), -100.0)
+        self.assertEqual(self._cash_balance(), 10525.0)
+
+    def test_create_transaction_buy_option_without_asset_type_row_returns_400(self):
+        response = self._post_transaction(
+            self._buy_payload("AAPL260807C00325000", "AAPL Aug 07 2026 325 Call", 100)
+        )
 
         self.assertEqual(response.status_code, 400)
 
