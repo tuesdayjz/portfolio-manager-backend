@@ -227,6 +227,123 @@ def _latest_stored_rates(currency_ids):
     return {row.currency_id: decimal_or_none(row.close_price) for row in rows}
 
 
+def latest_investment_value(positions, market_data, as_of):
+    """Return the USD value of `positions` on `as_of`, preferring live prices.
+
+    系列の点は `asset_data_history` の終値で組み立てるので、日次インポートが
+    走るまでは前営業日の値のままになる。summary の総額は allocation と同じ
+    ライブ値に揃えたいので、末端の 1 点だけここで組み直す。
+
+    価格・FX はライブを優先し、取れなかった銘柄だけ保存済みの終値・レートに
+    フォールバックする。ライブが引けない銘柄を落とすと総額から丸ごと消えて
+    しまうため、フォールバックは銘柄単位で行う。
+    """
+
+    if not positions:
+        return decimal.Decimal("0")
+
+    rows = db.session.execute(_position_snapshot_statement(positions, as_of)).all()
+
+    # 価格と非 USD 通貨の FX を 1 リクエストにまとめる。
+    if hasattr(market_data, "latest_prices"):
+        market_data.latest_prices(
+            [
+                *(row.ticker for row in rows),
+                *(
+                    f"{(row.currency or SUMMARY_CURRENCY).upper()}USD=X"
+                    for row in rows
+                    if (row.currency or SUMMARY_CURRENCY).upper() != SUMMARY_CURRENCY
+                ),
+            ]
+        )
+
+    total = decimal.Decimal("0")
+    for row in rows:
+        quantity = decimal_or_zero(row.quantity)
+        # ショートは負債であり資産ではないので、系列側と同じく合計から除く。
+        if quantity <= 0:
+            continue
+
+        price = decimal_or_none(market_data.latest_price(row.ticker))
+        if price is None:
+            price = decimal_or_none(row.close_price)
+        if price is None:
+            continue
+
+        currency = (row.currency or SUMMARY_CURRENCY).upper()
+        fx_rate = decimal_or_none(market_data.fx_to_usd(currency))
+        if fx_rate is None:
+            fx_rate = decimal_or_none(row.stored_fx_rate)
+        if fx_rate is None:
+            continue
+
+        total += quantity * price * fx_rate
+    return total
+
+
+def _position_snapshot_statement(positions, as_of):
+    """Return the per-holding quantity, stored close and stored FX on `as_of`.
+
+    数量の復元も終値・レートの引き当ても `_value_series_statement` と同じ
+    考え方だが、こちらは日付ごとの合計ではなく 1 日ぶんの明細を返す。
+    ライブ値のフォールバックを銘柄単位で決めるために明細が要る。
+    """
+
+    holding_ids = [position["holding_id"] for position in positions]
+
+    signed_quantity = case(
+        (
+            func.lower(Transactions.transaction_type) == TransactionType.SELL.value,
+            -Transactions.quantity,
+        ),
+        else_=Transactions.quantity,
+    )
+    quantity_after = (
+        select(func.coalesce(func.sum(signed_quantity), 0))
+        .where(Transactions.holding_id == Holdings.id)
+        .where(Transactions.trade_date > as_of)
+        .scalar_subquery()
+    )
+    close_price = (
+        select(AssetDataHistory.close_price)
+        .where(AssetDataHistory.asset_id == Holdings.asset_id)
+        .where(AssetDataHistory.price_date <= as_of)
+        .order_by(AssetDataHistory.price_date.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    rate_on_or_before = (
+        select(CurrencyRateHistory.close_price)
+        .where(CurrencyRateHistory.currency_id == AssetMaster.currency_id)
+        .where(CurrencyRateHistory.rate_date <= as_of)
+        .order_by(CurrencyRateHistory.rate_date.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    earliest_rate = (
+        select(CurrencyRateHistory.close_price)
+        .where(CurrencyRateHistory.currency_id == AssetMaster.currency_id)
+        .order_by(CurrencyRateHistory.rate_date)
+        .limit(1)
+        .scalar_subquery()
+    )
+
+    return (
+        select(
+            AssetMaster.ticker,
+            Currency.currency,
+            (Holdings.quantity - quantity_after).label("quantity"),
+            close_price.label("close_price"),
+            func.coalesce(rate_on_or_before, earliest_rate).label("stored_fx_rate"),
+        )
+        .select_from(Holdings)
+        .join(AssetMaster, AssetMaster.id == Holdings.asset_id)
+        .outerjoin(Currency, Currency.id == AssetMaster.currency_id)
+        .where(Holdings.id.in_(holding_ids))
+        .order_by(AssetMaster.ticker)
+    )
+
+
 def _short_liability_value(portfolio_id, market_data, as_of):
     """Return the total USD value owed on open short positions today.
 

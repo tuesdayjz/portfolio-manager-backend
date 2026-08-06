@@ -43,8 +43,8 @@ from app.services.performance import (
     _performance_change,
     _performance_positions,
     _short_liability_value,
-    _short_liability_value,
     _value_series,
+    latest_investment_value,
 )
 
 PORTFOLIO_CREATED_MESSAGE = "Portfolio created"
@@ -146,7 +146,12 @@ def get_portfolio_summary(market_data=None):
     dates, investment_values = _value_series(
         positions, decimal.Decimal("0"), first_trade_date, today
     )
-    total_market_value = investment_values[-1] + cash_balance
+    # 系列の末端は日次インポート待ちで前営業日の終値のことがある。総額は
+    # allocation と同じライブ値に揃えたいので、現在値だけ組み直す。基準日は
+    # 過去の点なので系列の値をそのまま使う。
+    total_market_value = (
+        latest_investment_value(positions, market_data, today) + cash_balance
+    )
     total_return = _summary_total_return(
         portfolio.id,
         positions,

@@ -25,6 +25,11 @@ from app.models import (
 class FakeMarketData:
     prices = {}
     fx_rates = {}
+    batch_calls = []
+
+    def latest_prices(self, tickers):
+        self.batch_calls.append(tuple(tickers))
+        return {ticker: self.prices.get(ticker) for ticker in tickers}
 
     def latest_price(self, ticker):
         return self.prices.get(ticker)
@@ -49,6 +54,9 @@ class PortfolioSummaryEndpointTest(unittest.TestCase):
         self.app_context.push()
         self._create_sqlite_schema()
         self._seed_reference_data()
+        FakeMarketData.prices = {}
+        FakeMarketData.fx_rates = {}
+        FakeMarketData.batch_calls = []
         self.addCleanup(self._cleanup)
 
     def _cleanup(self):
@@ -294,6 +302,62 @@ class PortfolioSummaryEndpointTest(unittest.TestCase):
         self.assertAlmostEqual(
             data["total_return_percent"], 200 / 1251000 * 100, places=6
         )
+
+    def test_summary_prefers_live_price_over_stored_close(self):
+        portfolio = self._create_portfolio()
+        stock = self._asset("AAPL", self.stock_type, self.usd)
+        self._holding(portfolio, stock, quantity=10, average_cost=100)
+        self._prices(
+            stock,
+            {
+                self.today - datetime.timedelta(days=1): 100,
+                self.today: 120,
+            },
+        )
+        FakeMarketData.prices = {"AAPL": 130}
+
+        response = self._get_summary()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        # 保存済みの終値 120 ではなく、ライブの 130 で評価する。
+        self.assertEqual(data["total_market_value"], 1300)
+        # 価格と FX はバッチで 1 回だけ取りに行く。
+        self.assertEqual(len(FakeMarketData.batch_calls), 1)
+
+    def test_summary_falls_back_to_stored_close_per_asset(self):
+        portfolio = self._create_portfolio()
+        apple = self._asset("AAPL", self.stock_type, self.usd)
+        voo = self._asset("VOO", self.stock_type, self.usd)
+        self._holding(portfolio, apple, quantity=10, average_cost=100)
+        self._holding(portfolio, voo, quantity=1, average_cost=300)
+        self._prices(apple, {self.today: 120})
+        self._prices(voo, {self.today: 320})
+        FakeMarketData.prices = {"AAPL": 130}
+
+        response = self._get_summary()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        # ライブが引けない銘柄は保存済みの終値で評価する。総額から落として
+        # しまうと残高が丸ごと消えるので、フォールバックは銘柄単位。
+        self.assertEqual(data["total_market_value"], 1300 + 320)
+
+    def test_summary_converts_non_usd_stock_to_usd_at_live_rate(self):
+        portfolio = self._create_portfolio()
+        stock = self._asset("7203.T", self.stock_type, self.jpy)
+        self._holding(portfolio, stock, quantity=2, average_cost=1000)
+        self._prices(stock, {self.today: 1500})
+        FakeMarketData.prices = {"7203.T": 1600}
+        FakeMarketData.fx_rates = {"JPY": 0.01}
+
+        response = self._get_summary()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data["total_market_value"], 32)
+        # 非 USD 通貨の FX もバッチ取得の対象に含める。
+        self.assertIn("JPYUSD=X", FakeMarketData.batch_calls[0])
 
     def test_summary_excludes_short_position_from_total_market_value(self):
         portfolio = self._create_portfolio()
