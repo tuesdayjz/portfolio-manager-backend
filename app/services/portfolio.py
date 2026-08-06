@@ -360,7 +360,10 @@ def get_portfolio_holdings(args, market_data=None):
         # A short position gains value when the price falls, so its return
         # is the inverse of the raw price change used for a long position.
         return_sign = -1 if quantity < 0 else 1
-        return_percent = return_sign * _return_percent(
+        today_return_percent = return_sign * _return_percent(
+            current_price_usd, previous_close_usd
+        )
+        total_return_percent = return_sign * _return_percent(
             current_price_usd, average_purchase_price
         )
 
@@ -374,8 +377,8 @@ def get_portfolio_holdings(args, market_data=None):
                 "total_purchase_price": float(total_purchase_price),
                 "current_price": float(current_price_usd),
                 "total_market_value": float(holding_market_value),
-                "today_return_percent": float(return_percent),
-                "total_return_percent": float(return_percent),
+                "today_return_percent": float(today_return_percent),
+                "total_return_percent": float(total_return_percent),
                 "currency": SUMMARY_CURRENCY,
             }
         )

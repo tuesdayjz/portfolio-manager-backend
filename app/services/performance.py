@@ -77,8 +77,12 @@ def get_portfolio_performance(args, market_data=None):
     # 未来日を指定されても、評価できるのは今日までしかない。
     end_date = min(args.get("end_date") or today, today)
 
+    # "all" ビューではオプションを除外する。現金→オプション変換のタイミングで
+    # ポートフォリオ評価額が跳ね上がって見える問題を防ぐため。
+    # オプション専用タブ（asset_type=option）では引き続き表示される。
+    exclude = ("option",) if asset_type_filter == ALL_ASSET_TYPES else ()
     positions, cash_value, first_trade_date = _performance_positions(
-        portfolio.id, market_data, asset_type_filter
+        portfolio.id, market_data, asset_type_filter, exclude_asset_types=exclude
     )
 
     # 表示期間の外にある起点（1 年前など）も引けるよう、系列は運用開始来で作る。
@@ -113,12 +117,18 @@ def get_portfolio_performance(args, market_data=None):
     }
 
 
-def _performance_positions(portfolio_id, market_data, asset_type_filter):
+def _performance_positions(
+    portfolio_id,
+    market_data,
+    asset_type_filter,
+    exclude_asset_types=(),
+):
     """Split holdings into priced positions, a cash balance and the first trade date.
 
     `asset_type_filter` が `all` 以外なら、その資産クラスの holding だけを残す。
     現金は `cash` を指定したときだけ集計され、そのときは価格データを持たないので
     残高がそのまま一定額の系列になる。
+    `exclude_asset_types` に指定した資産クラスは集計から除外される。
 
     関連は明示的に join する。`holding.asset` などの遅延ロードに任せると
     保有銘柄ごとに往復が増え、実測では endpoint 全体の 7 割を占めていた。
@@ -161,6 +171,8 @@ def _performance_positions(portfolio_id, market_data, asset_type_filter):
     for row in rows:
         asset_type = (row.asset_type or "").lower()
         if asset_type_filter != ALL_ASSET_TYPES and asset_type != asset_type_filter:
+            continue
+        if asset_type in exclude_asset_types:
             continue
 
         # 保存済みレートを優先し、履歴が無い通貨だけ現在のレートを使う。
