@@ -24,6 +24,11 @@ class FakeMarketData:
     prices = {}
     fx_rates = {}
     sectors = {}
+    batch_calls = []
+
+    def latest_prices(self, tickers):
+        self.batch_calls.append(tuple(tickers))
+        return {ticker: self.prices.get(ticker) for ticker in tickers}
 
     def latest_price(self, ticker):
         return self.prices.get(ticker)
@@ -53,6 +58,7 @@ class PortfolioAllocationEndpointTest(unittest.TestCase):
         FakeMarketData.prices = {}
         FakeMarketData.fx_rates = {}
         FakeMarketData.sectors = {}
+        FakeMarketData.batch_calls = []
         self.addCleanup(self._cleanup)
 
     def _cleanup(self):
@@ -267,6 +273,22 @@ class PortfolioAllocationEndpointTest(unittest.TestCase):
             [(item["category"], item["value"]) for item in data["items"]],
             [("stock", 1030), ("cash", 1000), ("etf", 320)],
         )
+
+    def test_allocation_prefetches_prices_and_fx_in_one_batch(self):
+        portfolio = self._seed_mixed_portfolio()
+        tsla = self._asset("TSLA", "Tesla Inc.", self.stock_type, self.usd)
+        self._holding(portfolio, tsla, quantity=-10, average_cost=200)
+        FakeMarketData.prices["TSLA"] = 250
+
+        response = self._get_allocation("?group_by=asset_type")
+
+        self.assertEqual(response.status_code, 200)
+        # 1 リクエストにつき Yahoo Finance へのバッチ取得は1回だけ。
+        self.assertEqual(len(FakeMarketData.batch_calls), 1)
+        requested = FakeMarketData.batch_calls[0]
+        # 価格が要る銘柄と非 USD 通貨の FX がまとめて渡る。cash は価格不要、
+        # ショートは集計対象外なので含めない。
+        self.assertEqual(set(requested), {"AAPL", "7203.T", "VOO", "JPYUSD=X"})
 
     def test_allocation_groups_by_currency(self):
         self._seed_mixed_portfolio()
